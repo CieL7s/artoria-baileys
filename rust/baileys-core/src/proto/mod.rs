@@ -465,6 +465,42 @@ pub struct WebMessageInfo {
     pub push_name: Option<String>,
 }
 
+#[derive(Clone, PartialEq, ProstMessage, Serialize, Deserialize)]
+pub struct ADVDeviceIdentity {
+    #[prost(uint32, optional, tag = "1")]
+    pub raw_id: Option<u32>,
+    #[prost(uint64, optional, tag = "2")]
+    pub timestamp: Option<u64>,
+    #[prost(uint32, optional, tag = "3")]
+    pub key_index: Option<u32>,
+    #[prost(int32, optional, tag = "4")]
+    pub account_type: Option<i32>,
+    #[prost(int32, optional, tag = "5")]
+    pub device_type: Option<i32>,
+}
+
+#[derive(Clone, PartialEq, ProstMessage, Serialize, Deserialize)]
+pub struct ADVSignedDeviceIdentity {
+    #[prost(bytes = "vec", optional, tag = "1")]
+    pub details: Option<Vec<u8>>,
+    #[prost(bytes = "vec", optional, tag = "2")]
+    pub account_signature_key: Option<Vec<u8>>,
+    #[prost(bytes = "vec", optional, tag = "3")]
+    pub account_signature: Option<Vec<u8>>,
+    #[prost(bytes = "vec", optional, tag = "4")]
+    pub device_signature: Option<Vec<u8>>,
+}
+
+#[derive(Clone, PartialEq, ProstMessage, Serialize, Deserialize)]
+pub struct ADVSignedDeviceIdentityHMAC {
+    #[prost(bytes = "vec", optional, tag = "1")]
+    pub details: Option<Vec<u8>>,
+    #[prost(bytes = "vec", optional, tag = "2")]
+    pub hmac: Option<Vec<u8>>,
+    #[prost(int32, optional, tag = "3")]
+    pub account_type: Option<i32>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

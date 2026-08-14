@@ -35,7 +35,8 @@ pub fn sha256(data: &[u8]) -> [u8; 32] {
 }
 
 pub fn hkdf_sha256(salt: &[u8], ikm: &[u8], info: &[u8], length: usize) -> Result<Vec<u8>, CryptoError> {
-    let hk = Hkdf::<Sha256>::new(Some(salt), ikm);
+    let salt_opt = if salt.is_empty() { None } else { Some(salt) };
+    let hk = Hkdf::<Sha256>::new(salt_opt, ikm);
     let mut okm = vec![0u8; length];
     hk.expand(info, &mut okm).map_err(|_| CryptoError::HkdfError)?;
     Ok(okm)
@@ -140,6 +141,22 @@ pub fn curve25519_shared_key(private_key: &[u8; 32], public_key: &[u8; 32]) -> [
     let secret = StaticSecret::from(*private_key);
     let public = PublicKey::from(*public_key);
     secret.diffie_hellman(&public).to_bytes()
+}
+
+pub fn ed25519_sign(private_key: &[u8; 32], msg: &[u8]) -> [u8; 64] {
+    use ed25519_dalek::Signer;
+    let signing_key = ed25519_dalek::SigningKey::from_bytes(private_key);
+    signing_key.sign(msg).to_bytes()
+}
+
+pub fn ed25519_verify(public_key: &[u8; 32], msg: &[u8], signature: &[u8; 64]) -> bool {
+    use ed25519_dalek::Verifier;
+    if let Ok(verifying_key) = ed25519_dalek::VerifyingKey::from_bytes(public_key) {
+        let sig = ed25519_dalek::Signature::from_bytes(signature);
+        verifying_key.verify(msg, &sig).is_ok()
+    } else {
+        false
+    }
 }
 
 #[cfg(test)]

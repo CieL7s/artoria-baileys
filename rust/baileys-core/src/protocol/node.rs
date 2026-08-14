@@ -122,13 +122,15 @@ impl BinaryNode {
         self.get_child(tag).and_then(|child| child.get_content_string())
     }
 
+    pub fn get_bytes_content(&self) -> Option<&[u8]> {
+        if let Some(BinaryNodeContent::Bytes(b)) = &self.content {
+            Some(b.as_slice())
+        } else {
+            None
+        }
+    }
+
     pub fn get_child_bytes(&self, tag: &str) -> Option<&[u8]> {
-        self.get_child(tag).and_then(|child| {
-            if let Some(BinaryNodeContent::Bytes(b)) = &child.content {
-                Some(b.as_slice())
-            } else {
-                None
-            }
-        })
+        self.get_child(tag).and_then(|child| child.get_bytes_content())
     }
 }

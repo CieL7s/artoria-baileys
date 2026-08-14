@@ -798,16 +798,16 @@ impl WsConnection {
             }
 
             // Acknowledge IQ set or ping get stanza
-            if let Some(msg_id) = node.get_attr("id") {
-                if let Some(iq_type) = node.get_attr("type") {
-                    if iq_type == "set" || iq_type == "get" {
-                        let from_jid = node.get_attr("from").unwrap_or("@s.whatsapp.net");
-                        let ack_iq = BinaryNode::new("iq")
-                            .with_attr("to", from_jid)
-                            .with_attr("type", "result")
-                            .with_attr("id", msg_id);
-                        Self::send_encrypted_node(&ack_iq, noise_handler, send_tx).await;
+            if let Some(iq_type) = node.get_attr("type") {
+                if iq_type == "set" || iq_type == "get" {
+                    let from_jid = node.get_attr("from").unwrap_or("@s.whatsapp.net");
+                    let mut ack_iq = BinaryNode::new("iq")
+                        .with_attr("to", from_jid)
+                        .with_attr("type", "result");
+                    if let Some(msg_id) = node.get_attr("id") {
+                        ack_iq = ack_iq.with_attr("id", msg_id);
                     }
+                    Self::send_encrypted_node(&ack_iq, noise_handler, send_tx).await;
                 }
             }
 
@@ -848,6 +848,65 @@ impl WsConnection {
                 }
             } else if let Some(pair_success) = node.get_child("pair-success") {
                 // Device successfully paired!
+                let msg_id = node.get_attr("id").unwrap_or("pair-sign");
+                let mut signed_device_identity_enc: Option<Vec<u8>> = None;
+                let mut key_index: Option<u32> = None;
+
+                let creds_guard = creds.lock().await;
+                let signed_ident_pub = creds_guard.signed_identity_key.public.clone();
+                let signed_ident_priv = creds_guard.signed_identity_key.private.clone();
+                drop(creds_guard);
+
+                if let Some(device_ident_node) = pair_success.get_child("device-identity") {
+                    if let Some(ident_bytes) = device_ident_node.get_bytes_content() {
+                        if let Ok(hmac_msg) = crate::proto::ADVSignedDeviceIdentityHMAC::decode(ident_bytes) {
+                            if let Some(details) = hmac_msg.details {
+                                if let Ok(mut account) = crate::proto::ADVSignedDeviceIdentity::decode(&details[..]) {
+                                    if let Some(dev_details) = &account.details {
+                                        if let Ok(dev_ident) = crate::proto::ADVDeviceIdentity::decode(&dev_details[..]) {
+                                            key_index = dev_ident.key_index;
+                                            let account_sig_key = account.account_signature_key.clone().unwrap_or_default();
+                                            
+                                            // WA_ADV_DEVICE_SIG_PREFIX = [6, 1]
+                                            let mut device_msg = vec![6u8, 1u8];
+                                            device_msg.extend_from_slice(dev_details);
+                                            device_msg.extend_from_slice(&signed_ident_pub);
+                                            device_msg.extend_from_slice(&account_sig_key);
+
+                                            let mut priv_32 = [0u8; 32];
+                                            priv_32.copy_from_slice(&signed_ident_priv[..32]);
+                                            let sig_64 = crate::noise::crypto::ed25519_sign(&priv_32, &device_msg);
+
+                                            account.device_signature = Some(sig_64.to_vec());
+                                            account.account_signature_key = None; // clear as per Baileys encodeSignedDeviceIdentity
+
+                                            let mut enc = Vec::new();
+                                            let _ = account.encode(&mut enc);
+                                            signed_device_identity_enc = Some(enc);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Send pair-device-sign reply IQ if device identity was processed
+                if let (Some(account_enc), Some(k_idx)) = (signed_device_identity_enc, key_index) {
+                    let sign_node = BinaryNode::new("pair-device-sign")
+                        .with_children(vec![
+                            BinaryNode::new("device-identity")
+                                .with_attr("key-index", k_idx.to_string())
+                                .with_bytes_content(account_enc)
+                        ]);
+                    let reply_iq = BinaryNode::new("iq")
+                        .with_attr("to", "@s.whatsapp.net")
+                        .with_attr("type", "result")
+                        .with_attr("id", msg_id)
+                        .with_children(vec![sign_node]);
+                    Self::send_encrypted_node(&reply_iq, noise_handler, send_tx).await;
+                }
+
                 if let Some(device_node) = pair_success.get_child("device") {
                     if let Some(jid) = device_node.get_attr("jid") {
                         let mut creds_guard = creds.lock().await;
