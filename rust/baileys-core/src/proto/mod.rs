@@ -71,6 +71,120 @@ pub struct CertDetails {
     pub not_after: Option<u64>,
 }
 
+// --- Client Payload & Device Registration Protobufs ---
+
+#[derive(Clone, PartialEq, ProstMessage, Serialize, Deserialize)]
+pub struct AppVersion {
+    #[prost(uint32, optional, tag = "1")]
+    pub primary: Option<u32>,
+    #[prost(uint32, optional, tag = "2")]
+    pub secondary: Option<u32>,
+    #[prost(uint32, optional, tag = "3")]
+    pub tertiary: Option<u32>,
+    #[prost(uint32, optional, tag = "4")]
+    pub quaternary: Option<u32>,
+}
+
+#[derive(Clone, PartialEq, ProstMessage, Serialize, Deserialize)]
+pub struct UserAgent {
+    #[prost(int32, optional, tag = "1")]
+    pub platform: Option<i32>,
+    #[prost(message, optional, tag = "2")]
+    pub app_version: Option<AppVersion>,
+    #[prost(string, optional, tag = "3")]
+    pub mcc: Option<String>,
+    #[prost(string, optional, tag = "4")]
+    pub mnc: Option<String>,
+    #[prost(string, optional, tag = "5")]
+    pub os_version: Option<String>,
+    #[prost(string, optional, tag = "6")]
+    pub manufacturer: Option<String>,
+    #[prost(string, optional, tag = "7")]
+    pub device: Option<String>,
+    #[prost(string, optional, tag = "8")]
+    pub os_build_number: Option<String>,
+    #[prost(string, optional, tag = "9")]
+    pub phone_id: Option<String>,
+    #[prost(int32, optional, tag = "10")]
+    pub release_channel: Option<i32>,
+    #[prost(string, optional, tag = "11")]
+    pub locale_language_iso_639_1: Option<String>,
+    #[prost(string, optional, tag = "12")]
+    pub locale_country_iso_3166_1_alpha_2: Option<String>,
+}
+
+#[derive(Clone, PartialEq, ProstMessage, Serialize, Deserialize)]
+pub struct WebInfo {
+    #[prost(string, optional, tag = "1")]
+    pub ref_token: Option<String>,
+    #[prost(string, optional, tag = "2")]
+    pub version: Option<String>,
+    #[prost(int32, optional, tag = "3")]
+    pub web_sub_platform: Option<i32>,
+}
+
+#[derive(Clone, PartialEq, ProstMessage, Serialize, Deserialize)]
+pub struct DevicePairingData {
+    #[prost(bytes = "vec", optional, tag = "1")]
+    pub e_regid: Option<Vec<u8>>,
+    #[prost(bytes = "vec", optional, tag = "2")]
+    pub e_keytype: Option<Vec<u8>>,
+    #[prost(bytes = "vec", optional, tag = "3")]
+    pub e_ident: Option<Vec<u8>>,
+    #[prost(bytes = "vec", optional, tag = "4")]
+    pub e_skey_id: Option<Vec<u8>>,
+    #[prost(bytes = "vec", optional, tag = "5")]
+    pub e_skey_val: Option<Vec<u8>>,
+    #[prost(bytes = "vec", optional, tag = "6")]
+    pub e_skey_sig: Option<Vec<u8>>,
+    #[prost(bytes = "vec", optional, tag = "7")]
+    pub build_hash: Option<Vec<u8>>,
+    #[prost(bytes = "vec", optional, tag = "8")]
+    pub device_props: Option<Vec<u8>>,
+}
+
+#[derive(Clone, PartialEq, ProstMessage, Serialize, Deserialize)]
+pub struct ClientPayload {
+    #[prost(uint64, optional, tag = "1")]
+    pub username: Option<u64>,
+    #[prost(bool, optional, tag = "2")]
+    pub passive: Option<bool>,
+    #[prost(message, optional, tag = "3")]
+    pub user_agent: Option<UserAgent>,
+    #[prost(message, optional, tag = "4")]
+    pub web_info: Option<WebInfo>,
+    #[prost(string, optional, tag = "5")]
+    pub push_name: Option<String>,
+    #[prost(int32, optional, tag = "6")]
+    pub session_id: Option<i32>,
+    #[prost(bool, optional, tag = "7")]
+    pub short_connect: Option<bool>,
+    #[prost(int32, optional, tag = "8")]
+    pub connect_type: Option<i32>,
+    #[prost(int32, optional, tag = "9")]
+    pub connect_reason: Option<i32>,
+    #[prost(int32, repeated, tag = "10")]
+    pub shards: Vec<i32>,
+    #[prost(message, optional, tag = "12")]
+    pub device_pairing_data: Option<DevicePairingData>,
+    #[prost(uint32, optional, tag = "14")]
+    pub device: Option<u32>,
+    #[prost(bool, optional, tag = "17")]
+    pub pull: Option<bool>,
+}
+
+#[derive(Clone, PartialEq, ProstMessage, Serialize, Deserialize)]
+pub struct DeviceProps {
+    #[prost(string, optional, tag = "1")]
+    pub os: Option<String>,
+    #[prost(message, optional, tag = "2")]
+    pub version: Option<AppVersion>,
+    #[prost(int32, optional, tag = "3")]
+    pub platform_type: Option<i32>,
+    #[prost(bool, optional, tag = "4")]
+    pub require_full_sync: Option<bool>,
+}
+
 // --- Message Protobufs ---
 
 #[derive(Clone, PartialEq, ProstMessage, Serialize, Deserialize)]

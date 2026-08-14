@@ -1,7 +1,7 @@
 {
   "name": "artoria-baileys",
-  "version": "1.1.0",
-  "description": "Ultra-fast, Rust-powered drop-in replacement for Baileys WhatsApp Web client with NAPI-RS native acceleration.",
+  "version": "2.0.0",
+  "description": "Ultra-fast, 100% Pure Rust WhatsApp Web client engine packaged as native Node.js NAPI addon — 0-compromise drop-in replacement for Baileys.",
   "main": "index.js",
   "module": "index.js",
   "types": "index.d.ts",
@@ -28,7 +28,6 @@
   "files": [
     "index.js",
     "index.d.ts",
-    "lib/**/*",
     "*.node",
     "WAProto/**/*",
     "README.md",

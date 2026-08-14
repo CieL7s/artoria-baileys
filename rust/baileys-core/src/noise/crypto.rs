@@ -71,6 +71,39 @@ pub fn aes_gcm_decrypt(
     cipher.decrypt(nonce, payload).map_err(|_| CryptoError::DecryptionError)
 }
 
+use aes::cipher::{KeyIvInit, StreamCipher};
+use hmac::Hmac;
+
+pub fn aes_ctr_encrypt(key: &[u8], iv: &[u8], plaintext: &[u8]) -> Result<Vec<u8>, CryptoError> {
+    if key.len() == 16 && iv.len() == 16 {
+        type Aes128Ctr = ctr::Ctr128BE<aes::Aes128>;
+        let mut cipher = Aes128Ctr::new_from_slices(key, iv).map_err(|_| CryptoError::InvalidKeyLength)?;
+        let mut data = plaintext.to_vec();
+        cipher.apply_keystream(&mut data);
+        Ok(data)
+    } else if key.len() == 32 && iv.len() == 16 {
+        type Aes256Ctr = ctr::Ctr128BE<aes::Aes256>;
+        let mut cipher = Aes256Ctr::new_from_slices(key, iv).map_err(|_| CryptoError::InvalidKeyLength)?;
+        let mut data = plaintext.to_vec();
+        cipher.apply_keystream(&mut data);
+        Ok(data)
+    } else {
+        Err(CryptoError::InvalidKeyLength)
+    }
+}
+
+pub fn aes_ctr_decrypt(key: &[u8], iv: &[u8], ciphertext: &[u8]) -> Result<Vec<u8>, CryptoError> {
+    // CTR decryption is identical to encryption (keystream XOR)
+    aes_ctr_encrypt(key, iv, ciphertext)
+}
+
+pub fn hmac_sha256(key: &[u8], data: &[u8]) -> [u8; 32] {
+    use hmac::Mac;
+    let mut mac = <Hmac<Sha256> as Mac>::new_from_slice(key).expect("HMAC can take any key length");
+    mac.update(data);
+    mac.finalize().into_bytes().into()
+}
+
 pub fn curve25519_shared_key(private_key: &[u8; 32], public_key: &[u8; 32]) -> [u8; 32] {
     let secret = StaticSecret::from(*private_key);
     let public = PublicKey::from(*public_key);

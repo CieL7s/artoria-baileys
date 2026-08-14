@@ -439,10 +439,13 @@ pub struct WhatsAppClient {
 #[napi]
 impl WhatsAppClient {
     #[napi(constructor)]
-    pub fn new(auth_folder: Option<String>) -> Result<Self> {
+    pub fn new(auth_folder: Option<String>, print_qr: Option<bool>) -> Result<Self> {
         let folder = auth_folder.unwrap_or_else(|| "./auth_info_baileys".to_string());
-        let core = WhatsAppClientCore::new(&folder)
+        let mut core = WhatsAppClientCore::new(&folder)
             .map_err(|e| napi::Error::from_reason(e.to_string()))?;
+        if let Some(pq) = print_qr {
+            core = core.with_print_qr(pq);
+        }
         let rt = Runtime::new().map_err(|e| napi::Error::from_reason(e.to_string()))?;
 
         Ok(Self {
@@ -482,6 +485,32 @@ impl WhatsAppClient {
     }
 
     #[napi]
+    pub fn is_open(&self) -> bool {
+        self.client.is_open()
+    }
+
+    #[napi]
+    pub fn request_pairing_code(&self, phone_number: String) -> Result<String> {
+        let client = self.client.clone();
+        self.rt
+            .block_on(async move { client.request_pairing_code(&phone_number).await })
+            .map_err(|e| napi::Error::from_reason(e.to_string()))
+    }
+
+    #[napi]
+    pub fn get_auth_state_snapshot(&self) -> Result<String> {
+        let client = self.client.clone();
+        let creds = self.rt.block_on(async move { client.get_auth_snapshot().await });
+        serde_json::to_string(&creds).map_err(|e| napi::Error::from_reason(e.to_string()))
+    }
+
+    #[napi]
+    pub fn get_user_id(&self) -> Result<Option<String>> {
+        let client = self.client.clone();
+        Ok(self.rt.block_on(async move { client.get_user_id().await }))
+    }
+
+    #[napi]
     pub fn send_message(&self, to_jid: String, text: String) -> Result<String> {
         let client = self.client.clone();
         self.rt
@@ -505,3 +534,4 @@ impl WhatsAppClient {
 pub fn version() -> String {
     format!("auriel-baileys-core v{}", baileys_core::version())
 }
+

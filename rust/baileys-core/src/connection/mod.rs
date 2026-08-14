@@ -1,5 +1,6 @@
 use futures_util::{SinkExt, StreamExt};
 use prost::Message as ProstMessage;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use tokio::sync::{mpsc, Mutex};
 use tokio_tungstenite::{connect_async, tungstenite::protocol::Message as WsMessage};
@@ -8,34 +9,284 @@ use tracing::{error, info, warn};
 use crate::auth::AuthenticationCreds;
 use crate::events::BotEvent;
 use crate::message::MessageParser;
-use crate::noise::crypto::{curve25519_shared_key, hkdf_sha256};
+use crate::noise::crypto::{aes_gcm_decrypt, aes_gcm_encrypt, curve25519_shared_key, generate_iv, hkdf_sha256, sha256, CryptoError};
 use crate::noise::framing::{encode_frame, FrameBuffer};
 use crate::noise::TransportState;
-use crate::proto::{ClientHello, HandshakeMessage};
-use base64::Engine;
+use crate::proto::{
+    AppVersion, ClientFinish, ClientHello, ClientPayload, DevicePairingData, DeviceProps,
+    HandshakeMessage, UserAgent, WebInfo,
+};
 use crate::protocol::{decode_binary_node, encode_binary_node, BinaryNode};
+use base64::Engine;
 
 pub const DEFAULT_WA_WEBSOCKET_URL: &str = "wss://web.whatsapp.com/ws/chat";
-pub const NOISE_HEADER: &[u8] = b"WA\x06\x02";
+pub const NOISE_HEADER: &[u8] = b"WA\x06\x03";
 pub const NOISE_MODE: &[u8] = b"Noise_XX_25519_AESGCM_SHA256\0\0\0\0";
+
+pub struct NoiseHandler {
+    hash: [u8; 32],
+    salt: [u8; 32],
+    enc_key: [u8; 32],
+    dec_key: [u8; 32],
+    counter: u32,
+    ephemeral_priv: [u8; 32],
+    ephemeral_pub: [u8; 32],
+    noise_priv: [u8; 32],
+    noise_pub: [u8; 32],
+    pub transport: Option<TransportState>,
+}
+
+impl NoiseHandler {
+    pub fn new(noise_priv: [u8; 32], noise_pub: [u8; 32]) -> Self {
+        let (ephemeral_pub, ephemeral_priv) = {
+            let mut rng = rand::thread_rng();
+            let mut priv_b = [0u8; 32];
+            rand::RngCore::fill_bytes(&mut rng, &mut priv_b);
+            let sec = x25519_dalek::StaticSecret::from(priv_b);
+            let pub_k = x25519_dalek::PublicKey::from(&sec);
+            (pub_k.to_bytes(), priv_b)
+        };
+
+        let mode_hash = sha256(NOISE_MODE);
+        let mut handler = Self {
+            hash: mode_hash,
+            salt: mode_hash,
+            enc_key: mode_hash,
+            dec_key: mode_hash,
+            counter: 0,
+            ephemeral_priv,
+            ephemeral_pub,
+            noise_priv,
+            noise_pub,
+            transport: None,
+        };
+
+        handler.authenticate(NOISE_HEADER);
+        handler.authenticate(&ephemeral_pub);
+        handler
+    }
+
+    pub fn get_ephemeral_pub(&self) -> [u8; 32] {
+        self.ephemeral_pub
+    }
+
+    pub fn authenticate(&mut self, data: &[u8]) {
+        if self.transport.is_none() {
+            let mut combined = Vec::with_capacity(32 + data.len());
+            combined.extend_from_slice(&self.hash);
+            combined.extend_from_slice(data);
+            self.hash = sha256(&combined);
+        }
+    }
+
+    pub fn local_hkdf(&self, data: &[u8]) -> ([u8; 32], [u8; 32]) {
+        let out = hkdf_sha256(&self.salt, data, b"", 64).unwrap_or_else(|_| vec![0u8; 64]);
+        let mut write = [0u8; 32];
+        let mut read = [0u8; 32];
+        write.copy_from_slice(&out[0..32]);
+        read.copy_from_slice(&out[32..64]);
+        (write, read)
+    }
+
+    pub fn mix_into_key(&mut self, data: &[u8]) {
+        let (write, read) = self.local_hkdf(data);
+        self.salt = write;
+        self.enc_key = read;
+        self.dec_key = read;
+        self.counter = 0;
+    }
+
+    pub fn encrypt(&mut self, plaintext: &[u8]) -> Result<Vec<u8>, CryptoError> {
+        if let Some(t) = &mut self.transport {
+            return t.encrypt(plaintext);
+        }
+        let iv = generate_iv(self.counter);
+        self.counter += 1;
+        let res = aes_gcm_encrypt(&self.enc_key, &iv, &self.hash, plaintext)?;
+        self.authenticate(&res);
+        Ok(res)
+    }
+
+    pub fn decrypt(&mut self, ciphertext: &[u8]) -> Result<Vec<u8>, CryptoError> {
+        if let Some(t) = &mut self.transport {
+            return t.decrypt(ciphertext);
+        }
+        let iv = generate_iv(self.counter);
+        self.counter += 1;
+        let res = aes_gcm_decrypt(&self.dec_key, &iv, &self.hash, ciphertext)?;
+        self.authenticate(ciphertext);
+        Ok(res)
+    }
+
+    pub fn process_server_hello(
+        &mut self,
+        hs_msg: &HandshakeMessage,
+        creds: &AuthenticationCreds,
+    ) -> Result<HandshakeMessage, CryptoError> {
+        let srv_hello = hs_msg.server_hello.as_ref().ok_or(CryptoError::HkdfError)?;
+        let srv_eph = srv_hello.ephemeral.as_ref().ok_or(CryptoError::HkdfError)?;
+        self.authenticate(srv_eph);
+
+        let mut srv_eph_32 = [0u8; 32];
+        srv_eph_32.copy_from_slice(&srv_eph[..32]);
+        let shared1 = curve25519_shared_key(&self.ephemeral_priv, &srv_eph_32);
+        self.mix_into_key(&shared1);
+
+        let srv_static = srv_hello.r#static.as_ref().ok_or(CryptoError::HkdfError)?;
+        let dec_static = self.decrypt(srv_static)?;
+        let mut dec_static_32 = [0u8; 32];
+        dec_static_32.copy_from_slice(&dec_static[..32]);
+        let shared2 = curve25519_shared_key(&self.ephemeral_priv, &dec_static_32);
+        self.mix_into_key(&shared2);
+
+        let srv_payload = srv_hello.payload.as_ref().ok_or(CryptoError::HkdfError)?;
+        let _dec_cert = self.decrypt(srv_payload)?;
+
+        let noise_pub = self.noise_pub;
+        let noise_priv = self.noise_priv;
+        let enc_noise_key = self.encrypt(&noise_pub)?;
+        let shared3 = curve25519_shared_key(&noise_priv, &srv_eph_32);
+        self.mix_into_key(&shared3);
+
+        // Build Client Payload
+        let client_payload = if creds.registered && creds.me.is_some() {
+            let me_id = &creds.me.as_ref().unwrap().id;
+            let user_num: u64 = me_id.split('@').next().unwrap_or("0").parse().unwrap_or(0);
+            ClientPayload {
+                username: Some(user_num),
+                passive: Some(true),
+                pull: Some(true),
+                user_agent: Some(UserAgent {
+                    platform: Some(0), // WEB
+                    app_version: Some(AppVersion {
+                        primary: Some(2),
+                        secondary: Some(3000),
+                        tertiary: Some(1015901307),
+                        quaternary: None,
+                    }),
+                    os_version: Some("0.1".to_string()),
+                    device: Some("Desktop".to_string()),
+                    os_build_number: Some("0.1".to_string()),
+                    release_channel: Some(0),
+                    locale_language_iso_639_1: Some("en".to_string()),
+                    locale_country_iso_3166_1_alpha_2: Some("US".to_string()),
+                    ..Default::default()
+                }),
+                web_info: Some(WebInfo {
+                    web_sub_platform: Some(0),
+                    ..Default::default()
+                }),
+                connect_type: Some(1),
+                connect_reason: Some(1),
+                ..Default::default()
+            }
+        } else {
+            let mut device_props_bytes = Vec::new();
+            let device_props = DeviceProps {
+                os: Some("Ubuntu".to_string()),
+                version: Some(AppVersion {
+                    primary: Some(10),
+                    secondary: Some(15),
+                    tertiary: Some(7),
+                    quaternary: None,
+                }),
+                platform_type: Some(1), // Chrome
+                require_full_sync: Some(false),
+            };
+            let _ = device_props.encode(&mut device_props_bytes);
+
+            let mut reg_id_bytes = vec![0u8; 4];
+            reg_id_bytes[0] = ((creds.registration_id >> 24) & 0xff) as u8;
+            reg_id_bytes[1] = ((creds.registration_id >> 16) & 0xff) as u8;
+            reg_id_bytes[2] = ((creds.registration_id >> 8) & 0xff) as u8;
+            reg_id_bytes[3] = (creds.registration_id & 0xff) as u8;
+
+            let mut skey_id_bytes = vec![0u8; 3];
+            skey_id_bytes[0] = ((creds.signed_pre_key.key_id >> 16) & 0xff) as u8;
+            skey_id_bytes[1] = ((creds.signed_pre_key.key_id >> 8) & 0xff) as u8;
+            skey_id_bytes[2] = (creds.signed_pre_key.key_id & 0xff) as u8;
+
+            ClientPayload {
+                passive: Some(false),
+                pull: Some(false),
+                user_agent: Some(UserAgent {
+                    platform: Some(0),
+                    app_version: Some(AppVersion {
+                        primary: Some(2),
+                        secondary: Some(3000),
+                        tertiary: Some(1015901307),
+                        quaternary: None,
+                    }),
+                    os_version: Some("0.1".to_string()),
+                    device: Some("Desktop".to_string()),
+                    os_build_number: Some("0.1".to_string()),
+                    release_channel: Some(0),
+                    locale_language_iso_639_1: Some("en".to_string()),
+                    locale_country_iso_3166_1_alpha_2: Some("US".to_string()),
+                    ..Default::default()
+                }),
+                web_info: Some(WebInfo {
+                    web_sub_platform: Some(0),
+                    ..Default::default()
+                }),
+                connect_type: Some(1),
+                connect_reason: Some(1),
+                device_pairing_data: Some(DevicePairingData {
+                    build_hash: Some(sha256(b"2.3000.1015901307").to_vec()),
+                    device_props: Some(device_props_bytes),
+                    e_regid: Some(reg_id_bytes),
+                    e_keytype: Some(vec![0x05]),
+                    e_ident: Some(creds.signed_identity_key.public.clone()),
+                    e_skey_id: Some(skey_id_bytes),
+                    e_skey_val: Some(creds.signed_pre_key.key_pair.public.clone()),
+                    e_skey_sig: Some(creds.signed_pre_key.signature.clone()),
+                }),
+                ..Default::default()
+            }
+        };
+
+        let mut payload_buf = Vec::new();
+        client_payload.encode(&mut payload_buf).map_err(|_| CryptoError::HkdfError)?;
+        let enc_payload = self.encrypt(&payload_buf)?;
+
+        // Transition to transport state!
+        let (write_key, read_key) = self.local_hkdf(&[]);
+        self.transport = Some(TransportState::new(write_key, read_key));
+
+        Ok(HandshakeMessage {
+            client_hello: None,
+            server_hello: None,
+            client_finish: Some(ClientFinish {
+                r#static: Some(enc_noise_key),
+                payload: Some(enc_payload),
+            }),
+        })
+    }
+}
 
 pub struct WsConnection {
     url: String,
     creds: Arc<Mutex<AuthenticationCreds>>,
     event_tx: mpsc::UnboundedSender<BotEvent>,
     send_tx: Option<mpsc::UnboundedSender<Vec<u8>>>,
+    is_open: Arc<AtomicBool>,
+    print_qr_terminal: bool,
 }
 
 impl WsConnection {
     pub fn new(
         creds: Arc<Mutex<AuthenticationCreds>>,
         event_tx: mpsc::UnboundedSender<BotEvent>,
+        is_open: Arc<AtomicBool>,
+        print_qr_terminal: bool,
     ) -> Self {
         Self {
             url: DEFAULT_WA_WEBSOCKET_URL.to_string(),
             creds,
             event_tx,
             send_tx: None,
+            is_open,
+            print_qr_terminal,
         }
     }
 
@@ -58,9 +309,14 @@ impl WsConnection {
             Err(e) => {
                 error!("WebSocket connection error: {}", e);
                 let _ = self.event_tx.send(BotEvent::ConnectionUpdate {
+                    connection: Some("close".to_string()),
                     status: format!("error: {}", e),
                     qr: None,
                     is_logged_in: false,
+                    is_new_login: None,
+                    last_disconnect: Some(serde_json::json!({
+                        "error": { "message": e.to_string(), "output": { "statusCode": 500 } }
+                    })),
                 });
                 return;
             }
@@ -70,14 +326,20 @@ impl WsConnection {
         let (send_raw_tx, mut send_raw_rx) = mpsc::unbounded_channel::<Vec<u8>>();
         self.send_tx = Some(send_raw_tx.clone());
 
-        // Perform Noise XX Handshake
-        let (ephemeral_pub, ephemeral_priv) = {
-            let mut rng = rand::thread_rng();
+        // Prepare Noise Handler
+        let (noise_priv, noise_pub) = {
+            let lock = self.creds.lock().await;
             let mut priv_b = [0u8; 32];
-            rand::RngCore::fill_bytes(&mut rng, &mut priv_b);
-            let sec = x25519_dalek::StaticSecret::from(priv_b);
-            let pub_k = x25519_dalek::PublicKey::from(&sec);
-            (pub_k.to_bytes(), priv_b)
+            let mut pub_b = [0u8; 32];
+            priv_b.copy_from_slice(&lock.noise_key.private[..32]);
+            pub_b.copy_from_slice(&lock.noise_key.public[..32]);
+            (priv_b, pub_b)
+        };
+
+        let noise_handler = Arc::new(Mutex::new(NoiseHandler::new(noise_priv, noise_pub)));
+        let ephemeral_pub = {
+            let lock = noise_handler.lock().await;
+            lock.get_ephemeral_pub()
         };
 
         // Prepare initial Noise ClientHello
@@ -104,29 +366,23 @@ impl WsConnection {
         }
 
         let _ = self.event_tx.send(BotEvent::ConnectionUpdate {
+            connection: Some("connecting".to_string()),
             status: "connecting".to_string(),
             qr: None,
             is_logged_in: false,
+            is_new_login: None,
+            last_disconnect: None,
         });
 
-        let transport = Arc::new(Mutex::new(None::<TransportState>));
-        let transport_writer = transport.clone();
-        let transport_reader = transport.clone();
-
         // Spawn Outgoing Node Worker
+        let noise_writer = noise_handler.clone();
         let send_raw_worker = send_raw_tx.clone();
         tokio::spawn(async move {
             while let Some(node) = outgoing_rx.recv().await {
                 if let Ok(encoded_node) = encode_binary_node(&node) {
-                    let mut lock = transport_writer.lock().await;
-                    if let Some(trans) = lock.as_mut() {
-                        if let Ok(encrypted) = trans.encrypt(&encoded_node) {
-                            let frame = encode_frame(&encrypted, None);
-                            let _ = send_raw_worker.send(frame);
-                        }
-                    } else {
-                        // Send unencrypted if pre-handshake
-                        let frame = encode_frame(&encoded_node, None);
+                    let mut lock = noise_writer.lock().await;
+                    if let Ok(encrypted) = lock.encrypt(&encoded_node) {
+                        let frame = encode_frame(&encrypted, None);
                         let _ = send_raw_worker.send(frame);
                     }
                 }
@@ -143,6 +399,34 @@ impl WsConnection {
             }
         });
 
+        // Periodic Keep-Alive Ping Task
+        let send_ping_worker = send_raw_tx.clone();
+        let ping_noise = noise_handler.clone();
+        let ping_is_open = self.is_open.clone();
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(25));
+            loop {
+                interval.tick().await;
+                if ping_is_open.load(Ordering::SeqCst) {
+                    let tag = format!("ping_{}", rand::random::<u32>());
+                    let ping_node = BinaryNode::new("iq")
+                        .with_attr("id", &tag)
+                        .with_attr("to", "s.whatsapp.net")
+                        .with_attr("type", "get")
+                        .with_attr("xmlns", "w:p")
+                        .with_children(vec![BinaryNode::new("ping")]);
+
+                    if let Ok(encoded) = encode_binary_node(&ping_node) {
+                        let mut lock = ping_noise.lock().await;
+                        if let Ok(encrypted) = lock.encrypt(&encoded) {
+                            let frame = encode_frame(&encrypted, None);
+                            let _ = send_ping_worker.send(frame);
+                        }
+                    }
+                }
+            }
+        });
+
         // Frame Receiver Loop
         let mut frame_buffer = FrameBuffer::new();
 
@@ -152,69 +436,37 @@ impl WsConnection {
                     frame_buffer.push_data(&data);
 
                     while let Some(raw_frame) = frame_buffer.pop_frame() {
-                        let mut lock = transport_reader.lock().await;
+                        let mut lock = noise_handler.lock().await;
 
-                        if let Some(trans) = lock.as_mut() {
+                        if lock.transport.is_some() {
                             // Decrypt transport frame
-                            if let Ok(decrypted) = trans.decrypt(&raw_frame) {
+                            if let Ok(decrypted) = lock.decrypt(&raw_frame) {
                                 if let Ok(node) = decode_binary_node(&decrypted) {
-                                    Self::handle_incoming_node(&node, &self.event_tx).await;
+                                    Self::handle_incoming_node(
+                                        &node,
+                                        &self.event_tx,
+                                        &self.creds,
+                                        &send_raw_tx,
+                                        &self.is_open,
+                                        self.print_qr_terminal,
+                                    )
+                                    .await;
                                 }
                             }
                         } else {
-                            // Process Handshake Response
+                            // Process Handshake Response (ServerHello)
                             if let Ok(hs) = HandshakeMessage::decode(&raw_frame[..]) {
-                                if let Some(server_hello) = hs.server_hello {
-                                    info!("Received ServerHello! Completing Noise handshake...");
-
-                                    // Extract server ephemeral key
-                                    if let Some(srv_ephemeral) = server_hello.ephemeral {
-                                        if srv_ephemeral.len() == 32 {
-                                            let mut srv_eph_arr = [0u8; 32];
-                                            srv_eph_arr.copy_from_slice(&srv_ephemeral);
-
-                                            // Derive shared keys
-                                            let shared_secret = curve25519_shared_key(&ephemeral_priv, &srv_eph_arr);
-                                            let hkdf_out = hkdf_sha256(&[], &shared_secret, b"Noise_XX_25519_AESGCM_SHA256", 64)
-                                                .unwrap_or_default();
-
-                                            if hkdf_out.len() == 64 {
-                                                let mut enc_key = [0u8; 32];
-                                                let mut dec_key = [0u8; 32];
-                                                enc_key.copy_from_slice(&hkdf_out[0..32]);
-                                                dec_key.copy_from_slice(&hkdf_out[32..64]);
-
-                                                *lock = Some(TransportState::new(enc_key, dec_key));
-                                                info!("Noise Handshake completed: Transitioned to TransportState!");
-
-                                                let creds_guard = self.creds.lock().await;
-                                                let is_reg = creds_guard.registered;
-                                                drop(creds_guard);
-
-                                                if !is_reg {
-                                                    // Emit valid WhatsApp multi-device QR code string
-                                                    let creds_lock = self.creds.lock().await;
-                                                    let ref_str = base64::engine::general_purpose::STANDARD.encode(&ephemeral_pub);
-                                                    let noise_pub_str = base64::engine::general_purpose::STANDARD.encode(&creds_lock.noise_key.public);
-                                                    let ident_pub_str = base64::engine::general_purpose::STANDARD.encode(&creds_lock.signed_identity_key.public);
-                                                    let adv_secret_str = creds_lock.adv_secret_key.clone();
-                                                    drop(creds_lock);
-
-                                                    let qr_data = format!("1@{},{},{},{}", ref_str, noise_pub_str, ident_pub_str, adv_secret_str);
-                                                    let _ = self.event_tx.send(BotEvent::ConnectionUpdate {
-                                                        status: "qr".to_string(),
-                                                        qr: Some(qr_data),
-                                                        is_logged_in: false,
-                                                    });
-                                                } else {
-                                                    let _ = self.event_tx.send(BotEvent::ConnectionUpdate {
-                                                        status: "open".to_string(),
-                                                        qr: None,
-                                                        is_logged_in: true,
-                                                    });
-                                                }
-                                            }
-                                        }
+                                let creds_lock = self.creds.lock().await;
+                                match lock.process_server_hello(&hs, &creds_lock) {
+                                    Ok(client_finish) => {
+                                        info!("ServerHello verified! Sending ClientFinish...");
+                                        let mut finish_bytes = Vec::new();
+                                        let _ = client_finish.encode(&mut finish_bytes);
+                                        let finish_frame = encode_frame(&finish_bytes, None);
+                                        let _ = send_raw_tx.send(finish_frame);
+                                    }
+                                    Err(e) => {
+                                        error!("Noise Handshake ServerHello processing failed: {:?}", e);
                                     }
                                 }
                             }
@@ -226,19 +478,31 @@ impl WsConnection {
                 }
                 Ok(WsMessage::Close(_)) => {
                     warn!("WebSocket closed by remote host");
+                    self.is_open.store(false, Ordering::SeqCst);
                     let _ = self.event_tx.send(BotEvent::ConnectionUpdate {
+                        connection: Some("close".to_string()),
                         status: "close".to_string(),
                         qr: None,
                         is_logged_in: false,
+                        is_new_login: None,
+                        last_disconnect: Some(serde_json::json!({
+                            "error": { "message": "Connection Closed", "output": { "statusCode": 428 } }
+                        })),
                     });
                     break;
                 }
                 Err(e) => {
                     error!("WebSocket read error: {}", e);
+                    self.is_open.store(false, Ordering::SeqCst);
                     let _ = self.event_tx.send(BotEvent::ConnectionUpdate {
+                        connection: Some("close".to_string()),
                         status: format!("error: {}", e),
                         qr: None,
                         is_logged_in: false,
+                        is_new_login: None,
+                        last_disconnect: Some(serde_json::json!({
+                            "error": { "message": e.to_string(), "output": { "statusCode": 500 } }
+                        })),
                     });
                     break;
                 }
@@ -250,8 +514,25 @@ impl WsConnection {
     async fn handle_incoming_node(
         node: &BinaryNode,
         event_tx: &mpsc::UnboundedSender<BotEvent>,
+        creds: &Arc<Mutex<AuthenticationCreds>>,
+        send_tx: &mpsc::UnboundedSender<Vec<u8>>,
+        is_open: &Arc<AtomicBool>,
+        print_qr_terminal: bool,
     ) {
         if node.tag == "message" {
+            // Auto send Ack
+            if let Some(msg_id) = node.get_attr("id") {
+                let from_jid = node.get_attr("from").unwrap_or("s.whatsapp.net");
+                let ack_node = BinaryNode::new("ack")
+                    .with_attr("id", msg_id)
+                    .with_attr("class", "message")
+                    .with_attr("to", from_jid);
+                if let Ok(encoded) = encode_binary_node(&ack_node) {
+                    let frame = encode_frame(&encoded, None);
+                    let _ = send_tx.send(frame);
+                }
+            }
+
             if let Some(msg_info) = MessageParser::parse_incoming_message(node) {
                 let _ = event_tx.send(BotEvent::MessageUpsert {
                     messages: vec![msg_info],
@@ -259,11 +540,80 @@ impl WsConnection {
                 });
             }
         } else if node.tag == "iq" {
-            if node.get_attr("type") == Some("result") {
-                info!("Received IQ result from WhatsApp server");
+            // Handle QR Pair-Device Node
+            if let Some(pair_device) = node.get_child("pair-device") {
+                if let Some(ref_data) = pair_device.get_child_string("ref") {
+                    let creds_guard = creds.lock().await;
+                    let noise_pub_b64 = base64::engine::general_purpose::STANDARD.encode(&creds_guard.noise_key.public);
+                    let ident_pub_b64 = base64::engine::general_purpose::STANDARD.encode(&creds_guard.signed_identity_key.public);
+                    let adv_secret_b64 = creds_guard.adv_secret_key.clone();
+                    drop(creds_guard);
+
+                    let qr_url = format!(
+                        "https://wa.me/settings/linked_devices#{},{},{},{},1",
+                        ref_data.trim(), noise_pub_b64, ident_pub_b64, adv_secret_b64
+                    );
+
+                    if print_qr_terminal {
+                        if let Ok(code) = qrcode::QrCode::new(qr_url.as_bytes()) {
+                            let string = code.render::<char>().quiet_zone(false).module_dimensions(2, 1).build();
+                            println!("\n{}\n", string);
+                        }
+                    }
+
+                    let _ = event_tx.send(BotEvent::ConnectionUpdate {
+                        connection: Some("connecting".to_string()),
+                        status: "qr".to_string(),
+                        qr: Some(qr_url),
+                        is_logged_in: false,
+                        is_new_login: None,
+                        last_disconnect: None,
+                    });
+                }
+            } else if let Some(pair_success) = node.get_child("pair-success") {
+                // Device successfully paired!
+                if let Some(device_node) = pair_success.get_child("device") {
+                    if let Some(jid) = device_node.get_attr("jid") {
+                        let mut creds_guard = creds.lock().await;
+                        creds_guard.me = Some(crate::auth::ContactInfo {
+                            id: jid.to_string(),
+                            name: Some("~".to_string()),
+                            notify: None,
+                            verified_name: None,
+                        });
+                        creds_guard.registered = true;
+                        let creds_clone = creds_guard.clone();
+                        drop(creds_guard);
+
+                        is_open.store(true, Ordering::SeqCst);
+                        let _ = event_tx.send(BotEvent::CredsUpdate(creds_clone));
+                        let _ = event_tx.send(BotEvent::ConnectionUpdate {
+                            connection: Some("open".to_string()),
+                            status: "open".to_string(),
+                            qr: None,
+                            is_logged_in: true,
+                            is_new_login: Some(true),
+                            last_disconnect: None,
+                        });
+                    }
+                }
             }
-        } else if node.tag == "receipt" {
-            info!("Received message receipt from server");
+        } else if node.tag == "success" {
+            let mut creds_guard = creds.lock().await;
+            creds_guard.registered = true;
+            let creds_clone = creds_guard.clone();
+            drop(creds_guard);
+
+            is_open.store(true, Ordering::SeqCst);
+            let _ = event_tx.send(BotEvent::CredsUpdate(creds_clone));
+            let _ = event_tx.send(BotEvent::ConnectionUpdate {
+                connection: Some("open".to_string()),
+                status: "open".to_string(),
+                qr: None,
+                is_logged_in: true,
+                is_new_login: Some(false),
+                last_disconnect: None,
+            });
         }
     }
 }
