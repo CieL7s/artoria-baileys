@@ -28,6 +28,7 @@
   "files": [
     "index.js",
     "index.d.ts",
+    "lib/**/*",
     "*.node",
     "WAProto/**/*",
     "README.md",
@@ -53,8 +54,14 @@
     "build:rust": "cargo build --package baileys-napi --release"
   },
   "dependencies": {
+    "@cacheable/node-cache": "^1.4.0",
     "@hapi/boom": "^10.0.1",
+    "async-mutex": "^0.5.0",
     "libsignal": "^2.0.1",
+    "lru-cache": "^11.1.0",
+    "music-metadata": "^11.12.3",
+    "p-queue": "^9.0.0",
+    "pino": "^9.6.0",
     "protobufjs": "^7.4.0",
     "qrcode-terminal": "^0.12.0",
     "ws": "^8.18.0"
