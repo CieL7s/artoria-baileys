@@ -232,7 +232,12 @@ impl NoiseHandler {
                 connect_type: Some(1),
                 connect_reason: Some(1),
                 device_pairing_data: Some(DevicePairingData {
-                    build_hash: Some(sha256(b"2.3000.1015901307").to_vec()),
+                    build_hash: {
+                        use md5::{Digest, Md5};
+                        let mut h = Md5::new();
+                        h.update(b"2.3000.1015901307");
+                        Some(h.finalize().to_vec())
+                    },
                     device_props: Some(device_props_bytes),
                     e_regid: Some(reg_id_bytes),
                     e_keytype: Some(vec![0x05]),
