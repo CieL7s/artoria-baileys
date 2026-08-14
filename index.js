@@ -513,26 +513,52 @@ export function makeWASocket(config = {}) {
   // Wire Rust background event dispatcher to JavaScript EventEmitter
   nativeClient.onEvent((eventJson) => {
     try {
+      if (!eventJson || typeof eventJson !== 'string') return;
       const event = JSON.parse(eventJson);
-      if (event.type === 'ConnectionUpdate') {
+      if (!event || typeof event !== 'object') return;
+
+      if (event.type === 'ConnectionUpdate' && event.data) {
+        const connStatus = event.data.status === 'open' ? 'open' : (event.data.status === 'close' ? 'close' : 'connecting');
         ev.emit('connection.update', {
-          connection: event.data.status,
+          connection: connStatus,
           qr: event.data.qr,
-          isLoggedIn: event.data.is_logged_in
+          isLoggedIn: !!event.data.is_logged_in
         });
-      } else if (event.type === 'MessageUpsert') {
+      } else if (event.type === 'MessageUpsert' && event.data) {
         ev.emit('messages.upsert', {
-          messages: event.data.messages,
-          type: event.data.type
+          messages: event.data.messages || [],
+          type: event.data.type || 'notify'
         });
-      } else if (event.type === 'CredsUpdate') {
+      } else if (event.type === 'CredsUpdate' && event.data) {
         ev.emit('creds.update', event.data);
       }
-      ev.emit(event.type, event.data);
+      if (event.type) {
+        ev.emit(event.type, event.data);
+      }
     } catch (e) {
       console.error('[Auriel-Baileys] Error parsing event from native core:', e);
     }
   });
+
+  if (config.printQRInTerminal) {
+    ev.on('connection.update', async (update) => {
+      if (update.qr) {
+        try {
+          const qrcode = await import('qrcode-terminal');
+          (qrcode.default?.generate || qrcode.generate)?.(update.qr, { small: true });
+        } catch {
+          console.log('\n--- SCAN THIS WHATSAPP QR CODE ---\n' + update.qr + '\n----------------------------------\n');
+        }
+      }
+    });
+  }
+
+  // Automatically start connection
+  setTimeout(() => {
+    try {
+      nativeClient.connect();
+    } catch {}
+  }, 50);
 
   const authState = config.auth || {
     creds: {

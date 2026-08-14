@@ -243,6 +243,10 @@ impl Encoder {
                     self.write_byte_length(bytes.len())?;
                     self.push_bytes(bytes);
                 }
+                BinaryNodeContent::NodeBuffer(buf_obj) => {
+                    self.write_byte_length(buf_obj.data.len())?;
+                    self.push_bytes(&buf_obj.data);
+                }
                 BinaryNodeContent::List(children) => {
                     self.write_list_start(children.len());
                     for child in children {

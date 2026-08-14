@@ -29,9 +29,17 @@ pub enum ProtocolError {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NodeBufferObject {
+    #[serde(rename = "type")]
+    pub buf_type: String,
+    pub data: Vec<u8>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum BinaryNodeContent {
     String(String),
+    NodeBuffer(NodeBufferObject),
     Bytes(Vec<u8>),
     List(Vec<BinaryNode>),
 }

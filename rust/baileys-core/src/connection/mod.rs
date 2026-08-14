@@ -12,9 +12,10 @@ use crate::noise::crypto::{curve25519_shared_key, hkdf_sha256};
 use crate::noise::framing::{encode_frame, FrameBuffer};
 use crate::noise::TransportState;
 use crate::proto::{ClientHello, HandshakeMessage};
+use base64::Engine;
 use crate::protocol::{decode_binary_node, encode_binary_node, BinaryNode};
 
-pub const DEFAULT_WA_WEBSOCKET_URL: &str = "wss://web.whatsapp.net/ws/chat";
+pub const DEFAULT_WA_WEBSOCKET_URL: &str = "wss://web.whatsapp.com/ws/chat";
 pub const NOISE_HEADER: &[u8] = b"WA\x06\x02";
 pub const NOISE_MODE: &[u8] = b"Noise_XX_25519_AESGCM_SHA256\0\0\0\0";
 
@@ -191,8 +192,15 @@ impl WsConnection {
                                                 drop(creds_guard);
 
                                                 if !is_reg {
-                                                    // Emit QR code for pairing
-                                                    let qr_data = format!("RIEL_BAILEYS_QR_{}", uuid::Uuid::new_v4());
+                                                    // Emit valid WhatsApp multi-device QR code string
+                                                    let creds_lock = self.creds.lock().await;
+                                                    let ref_str = base64::engine::general_purpose::STANDARD.encode(&ephemeral_pub);
+                                                    let noise_pub_str = base64::engine::general_purpose::STANDARD.encode(&creds_lock.noise_key.public);
+                                                    let ident_pub_str = base64::engine::general_purpose::STANDARD.encode(&creds_lock.signed_identity_key.public);
+                                                    let adv_secret_str = creds_lock.adv_secret_key.clone();
+                                                    drop(creds_lock);
+
+                                                    let qr_data = format!("1@{},{},{},{}", ref_str, noise_pub_str, ident_pub_str, adv_secret_str);
                                                     let _ = self.event_tx.send(BotEvent::ConnectionUpdate {
                                                         status: "qr".to_string(),
                                                         qr: Some(qr_data),
