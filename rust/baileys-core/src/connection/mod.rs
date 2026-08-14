@@ -455,7 +455,7 @@ impl WsConnection {
                     let tag = format!("ping_{}", rand::random::<u32>());
                     let ping_node = BinaryNode::new("iq")
                         .with_attr("id", &tag)
-                        .with_attr("to", "s.whatsapp.net")
+                        .with_attr("to", "@s.whatsapp.net")
                         .with_attr("type", "get")
                         .with_attr("xmlns", "w:p")
                         .with_children(vec![BinaryNode::new("ping")]);
@@ -605,7 +605,7 @@ impl WsConnection {
         if node.tag == "message" {
             // Auto send Ack
             if let Some(msg_id) = node.get_attr("id") {
-                let from_jid = node.get_attr("from").unwrap_or("s.whatsapp.net");
+                let from_jid = node.get_attr("from").unwrap_or("@s.whatsapp.net");
                 let ack_node = BinaryNode::new("ack")
                     .with_attr("id", msg_id)
                     .with_attr("class", "message")
@@ -630,7 +630,7 @@ impl WsConnection {
             // Acknowledge IQ set stanza
             if let (Some(msg_id), Some("set")) = (node.get_attr("id"), node.get_attr("type")) {
                 let ack_iq = BinaryNode::new("iq")
-                    .with_attr("to", "s.whatsapp.net")
+                    .with_attr("to", "@s.whatsapp.net")
                     .with_attr("type", "result")
                     .with_attr("id", msg_id);
                 Self::send_encrypted_node(&ack_iq, noise_handler, send_tx).await;
@@ -783,7 +783,7 @@ impl WsConnection {
 
                                             let resp_msg_id = format!("3EB0{}", hex::encode(rand_8));
                                             let resp_iq = BinaryNode::new("iq")
-                                                .with_attr("to", "s.whatsapp.net")
+                                                .with_attr("to", "@s.whatsapp.net")
                                                 .with_attr("type", "set")
                                                 .with_attr("id", &resp_msg_id)
                                                 .with_attr("xmlns", "md")
