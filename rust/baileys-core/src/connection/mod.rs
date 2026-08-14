@@ -512,7 +512,7 @@ impl WsConnection {
                                     println!("[WS] Successfully decrypted transport frame: {} bytes", decrypted.len());
                                     match decode_binary_node(&decrypted) {
                                         Ok(node) => {
-                                            println!("[WS] Decoded BinaryNode: tag={}", node.tag);
+                                            println!("[WS] Decoded BinaryNode: {:?}", node);
                                             Self::handle_incoming_node(
                                                 &node,
                                                 &self.event_tx,
