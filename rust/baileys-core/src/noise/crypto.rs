@@ -143,20 +143,82 @@ pub fn curve25519_shared_key(private_key: &[u8; 32], public_key: &[u8; 32]) -> [
     secret.diffie_hellman(&public).to_bytes()
 }
 
-pub fn ed25519_sign(private_key: &[u8; 32], msg: &[u8]) -> [u8; 64] {
-    use ed25519_dalek::Signer;
-    let signing_key = ed25519_dalek::SigningKey::from_bytes(private_key);
-    signing_key.sign(msg).to_bytes()
+use curve25519_dalek::edwards::{CompressedEdwardsY, EdwardsPoint};
+use curve25519_dalek::montgomery::MontgomeryPoint;
+use curve25519_dalek::scalar::Scalar;
+use sha2::Sha512;
+
+pub fn curve25519_sign(private_key: &[u8; 32], msg: &[u8]) -> [u8; 64] {
+    let mut priv_clamped = *private_key;
+    priv_clamped[0] &= 248;
+    priv_clamped[31] &= 127;
+    priv_clamped[31] |= 64;
+
+    let a = Scalar::from_bytes_mod_order(priv_clamped);
+    let a_point = EdwardsPoint::mul_base(&a);
+    let pk_bytes = a_point.compress().to_bytes();
+    let sign_bit = pk_bytes[31] & 0x80;
+
+    let mut hasher = Sha512::new();
+    hasher.update(&priv_clamped);
+    hasher.update(msg);
+    let nonce_hash: [u8; 64] = hasher.finalize().into();
+    let r = Scalar::from_bytes_mod_order_wide(&nonce_hash);
+
+    let r_point = EdwardsPoint::mul_base(&r);
+    let r_bytes = r_point.compress().to_bytes();
+
+    let mut hasher2 = Sha512::new();
+    hasher2.update(&r_bytes);
+    hasher2.update(&pk_bytes);
+    hasher2.update(msg);
+    let hram_hash: [u8; 64] = hasher2.finalize().into();
+    let k = Scalar::from_bytes_mod_order_wide(&hram_hash);
+
+    let s = r + k * a;
+    let s_bytes = s.to_bytes();
+
+    let mut signature = [0u8; 64];
+    signature[0..32].copy_from_slice(&r_bytes);
+    signature[32..64].copy_from_slice(&s_bytes);
+    signature[63] |= sign_bit;
+
+    signature
 }
 
-pub fn ed25519_verify(public_key: &[u8; 32], msg: &[u8], signature: &[u8; 64]) -> bool {
-    use ed25519_dalek::Verifier;
-    if let Ok(verifying_key) = ed25519_dalek::VerifyingKey::from_bytes(public_key) {
-        let sig = ed25519_dalek::Signature::from_bytes(signature);
-        verifying_key.verify(msg, &sig).is_ok()
-    } else {
-        false
-    }
+pub fn curve25519_verify(public_key: &[u8; 32], msg: &[u8], signature: &[u8; 64]) -> bool {
+    let sign_bit = (signature[63] >> 7) as u8;
+    let mont_point = MontgomeryPoint(*public_key);
+    let ed_point = match mont_point.to_edwards(sign_bit) {
+        Some(pt) => pt,
+        None => return false,
+    };
+
+    let r_point = match CompressedEdwardsY(signature[0..32].try_into().unwrap()).decompress() {
+        Some(pt) => pt,
+        None => return false,
+    };
+
+    let mut s_bytes = [0u8; 32];
+    s_bytes.copy_from_slice(&signature[32..64]);
+    s_bytes[31] &= 0x7F; // clear sign bit
+    let s = match Option::<Scalar>::from(Scalar::from_canonical_bytes(s_bytes)) {
+        Some(sc) => sc,
+        None => return false,
+    };
+
+    let pk_bytes = ed_point.compress().to_bytes();
+    let mut hasher = Sha512::new();
+    hasher.update(&signature[0..32]);
+    hasher.update(&pk_bytes);
+    hasher.update(msg);
+    let hram_hash: [u8; 64] = hasher.finalize().into();
+    let k = Scalar::from_bytes_mod_order_wide(&hram_hash);
+
+    let s_b = EdwardsPoint::mul_base(&s);
+    let r_plus_ka = r_point + (&k * &ed_point);
+
+    s_b == r_plus_ka
 }
 
 #[cfg(test)]
@@ -183,5 +245,21 @@ mod tests {
         assert_eq!(iv[9], 0x02);
         assert_eq!(iv[10], 0x03);
         assert_eq!(iv[11], 0x04);
+    }
+
+    #[test]
+    fn test_curve25519_sign_and_verify() {
+        let mut priv_bytes = [0x42u8; 32];
+        priv_bytes[0] &= 248;
+        priv_bytes[31] &= 127;
+        priv_bytes[31] |= 64;
+
+        let secret = x25519_dalek::StaticSecret::from(priv_bytes);
+        let public = x25519_dalek::PublicKey::from(&secret);
+
+        let msg = b"WhatsApp Curve25519 PreKey Signature Verification Test";
+        let sig = curve25519_sign(&priv_bytes, msg);
+
+        assert!(curve25519_verify(public.as_bytes(), msg, &sig));
     }
 }

@@ -773,14 +773,6 @@ impl WsConnection {
                                             Self::send_encrypted_node(&resp_iq, noise_handler, send_tx).await;
 
                                             let _ = event_tx.send(BotEvent::CredsUpdate(creds_clone));
-                                            let _ = event_tx.send(BotEvent::ConnectionUpdate {
-                                                connection: Some("open".to_string()),
-                                                status: "open".to_string(),
-                                                qr: None,
-                                                is_logged_in: true,
-                                                is_new_login: Some(true),
-                                                last_disconnect: None,
-                                            });
                                         }
                                     }
                                 }
@@ -875,7 +867,7 @@ impl WsConnection {
 
                                             let mut priv_32 = [0u8; 32];
                                             priv_32.copy_from_slice(&signed_ident_priv[..32]);
-                                            let sig_64 = crate::noise::crypto::ed25519_sign(&priv_32, &device_msg);
+                                            let sig_64 = crate::noise::crypto::curve25519_sign(&priv_32, &device_msg);
 
                                             account.device_signature = Some(sig_64.to_vec());
                                             account.account_signature_key = None; // clear as per Baileys encodeSignedDeviceIdentity

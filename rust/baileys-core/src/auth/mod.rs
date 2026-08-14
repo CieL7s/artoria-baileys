@@ -26,6 +26,9 @@ impl KeyPair {
         let mut rng = thread_rng();
         let mut priv_bytes = [0u8; 32];
         rng.fill_bytes(&mut priv_bytes);
+        priv_bytes[0] &= 248;
+        priv_bytes[31] &= 127;
+        priv_bytes[31] |= 64;
 
         let secret = x25519_dalek::StaticSecret::from(priv_bytes);
         let public = x25519_dalek::PublicKey::from(&secret);
@@ -76,13 +79,18 @@ impl AuthenticationCreds {
         let signed_identity_key = KeyPair::generate();
         let pre_key = KeyPair::generate();
 
-        // Dummy signature (64 bytes) or curve sign
-        let mut signature = vec![0u8; 64];
-        rng.fill_bytes(&mut signature);
+        let mut ident_priv_32 = [0u8; 32];
+        ident_priv_32.copy_from_slice(&signed_identity_key.private[..32]);
+
+        // Generate signal pubKey with 0x05 prefix
+        let mut pub_key_with_prefix = vec![0x05u8];
+        pub_key_with_prefix.extend_from_slice(&pre_key.public);
+
+        let sig_64 = crate::noise::crypto::curve25519_sign(&ident_priv_32, &pub_key_with_prefix);
 
         let signed_pre_key = SignedKeyPair {
             key_pair: pre_key,
-            signature,
+            signature: sig_64.to_vec(),
             key_id: 1,
         };
 

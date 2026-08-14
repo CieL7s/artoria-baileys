@@ -67,6 +67,7 @@ dependencies = [
  "base64",
  "bytes",
  "ctr",
+ "curve25519-dalek",
  "ed25519-dalek",
  "futures-util",
  "hex",
