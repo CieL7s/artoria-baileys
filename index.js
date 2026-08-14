@@ -6,6 +6,7 @@ import { fileURLToPath } from 'url';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 import fs from 'fs';
+import crypto from 'crypto';
 
 const require = createRequire(import.meta.url);
 
@@ -207,6 +208,14 @@ export function areJidsSameUser(jid1, jid2) {
   return jidNormalizedUser(jid1) === jidNormalizedUser(jid2);
 }
 
+export async function fetchLatestBaileysVersion() {
+  return { version: [2, 3000, 1015901307], isLatest: true };
+}
+
+export async function fetchLatestWaWebVersion() {
+  return fetchLatestBaileysVersion();
+}
+
 export function generateMessageID() {
   const chars = '0123456789ABCDEF';
   let id = '3EB0';
@@ -300,11 +309,6 @@ export const DisconnectReason = {
   restartRequired: 515,
   multideviceMismatch: 411
 };
-
-export const fetchLatestBaileysVersion = async () => ({
-  version: [2, 3000, 1015901307],
-  isLatest: true
-});
 
 export const useMultiFileAuthState = async (folder) => {
   const fs = await import('fs');
