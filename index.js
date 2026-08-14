@@ -329,7 +329,9 @@ export function makeWASocket(config = {}) {
           try {
             const qrTerminal = require('qrcode-terminal');
             qrTerminal.generate(evt.data.qr, { small: true });
-          } catch {}
+          } catch {
+            console.log('\n[QR Code String]: ' + evt.data.qr + '\n');
+          }
         }
         ev.emit(evt.type, evt.data);
       }

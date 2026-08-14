@@ -16,7 +16,7 @@ use crate::proto::{
     AppVersion, ClientFinish, ClientHello, ClientPayload, DevicePairingData, DeviceProps,
     HandshakeMessage, UserAgent, WebInfo,
 };
-use crate::protocol::{decode_binary_node, encode_binary_node, BinaryNode};
+use crate::protocol::{decode_binary_node, encode_binary_node, BinaryNode, BinaryNodeContent};
 use base64::Engine;
 
 pub const DEFAULT_WA_WEBSOCKET_URL: &str = "wss://web.whatsapp.com/ws/chat";
@@ -486,7 +486,10 @@ impl WsConnection {
 
                         if lock.transport.is_some() {
                             // Decrypt transport frame
-                            match lock.decrypt(&raw_frame) {
+                            let dec_res = lock.decrypt(&raw_frame);
+                            drop(lock); // CRITICAL: Release lock before calling handle_incoming_node to avoid deadlock!
+
+                            match dec_res {
                                 Ok(decrypted) => {
                                     println!("[WS] Successfully decrypted transport frame: {} bytes", decrypted.len());
                                     match decode_binary_node(&decrypted) {
@@ -617,6 +620,13 @@ impl WsConnection {
                 });
             }
         } else if node.tag == "iq" {
+            println!("[WS IQ Detail] tag={} attrs={:?}", node.tag, node.attrs);
+            if let Some(BinaryNodeContent::List(children)) = &node.content {
+                for (i, c) in children.iter().enumerate() {
+                    println!("  [Child {}] tag={} attrs={:?} content={:?}", i, c.tag, c.attrs, c.content);
+                }
+            }
+
             // Acknowledge IQ set stanza
             if let (Some(msg_id), Some("set")) = (node.get_attr("id"), node.get_attr("type")) {
                 let ack_iq = BinaryNode::new("iq")
@@ -641,9 +651,14 @@ impl WsConnection {
                     );
 
                     if print_qr_terminal {
-                        if let Ok(code) = qrcode::QrCode::new(qr_url.as_bytes()) {
-                            let string = code.render::<char>().quiet_zone(false).module_dimensions(2, 1).build();
-                            println!("\n{}\n", string);
+                        match qrcode::QrCode::new(qr_url.as_bytes()) {
+                            Ok(code) => {
+                                let string = code.render::<char>().quiet_zone(true).module_dimensions(2, 1).build();
+                                println!("\n{}\n", string);
+                            }
+                            Err(e) => {
+                                println!("\n[WhatsApp Linked Devices QR Data]: {}\n(Error: {:?})\n", qr_url, e);
+                            }
                         }
                     }
 
