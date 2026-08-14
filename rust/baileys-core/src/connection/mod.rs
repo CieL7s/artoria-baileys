@@ -301,24 +301,62 @@ impl WsConnection {
     ) {
         info!("Connecting to WhatsApp WebSocket at {}...", self.url);
 
-        let ws_stream = match connect_async(&self.url).await {
-            Ok((stream, _response)) => {
-                info!("WebSocket TCP/TLS connection established!");
-                stream
-            }
-            Err(e) => {
-                error!("WebSocket connection error: {}", e);
-                let _ = self.event_tx.send(BotEvent::ConnectionUpdate {
-                    connection: Some("close".to_string()),
-                    status: format!("error: {}", e),
-                    qr: None,
-                    is_logged_in: false,
-                    is_new_login: None,
-                    last_disconnect: Some(serde_json::json!({
-                        "error": { "message": e.to_string(), "output": { "statusCode": 500 } }
-                    })),
-                });
-                return;
+        let ws_stream = {
+            let req_res = tokio_tungstenite::tungstenite::handshake::client::Request::builder()
+                .uri(&self.url)
+                .header("Host", "web.whatsapp.com")
+                .header("Origin", "https://web.whatsapp.com")
+                .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+                .header("Upgrade", "websocket")
+                .header("Connection", "Upgrade")
+                .header("Sec-WebSocket-Key", tokio_tungstenite::tungstenite::handshake::client::generate_key())
+                .header("Sec-WebSocket-Version", "13")
+                .body(());
+
+            match req_res {
+                Ok(req) => match connect_async(req).await {
+                    Ok((stream, _)) => {
+                        info!("WebSocket connection established with WhatsApp Origin!");
+                        stream
+                    }
+                    Err(e) => {
+                        warn!("Custom header WebSocket failed ({}), falling back to direct connect...", e);
+                        match connect_async(&self.url).await {
+                            Ok((stream, _)) => stream,
+                            Err(e2) => {
+                                error!("WebSocket connection error: {}", e2);
+                                let _ = self.event_tx.send(BotEvent::ConnectionUpdate {
+                                    connection: Some("close".to_string()),
+                                    status: format!("error: {}", e2),
+                                    qr: None,
+                                    is_logged_in: false,
+                                    is_new_login: None,
+                                    last_disconnect: Some(serde_json::json!({
+                                        "error": { "message": e2.to_string(), "output": { "statusCode": 500 } }
+                                    })),
+                                });
+                                return;
+                            }
+                        }
+                    }
+                },
+                Err(_) => match connect_async(&self.url).await {
+                    Ok((stream, _)) => stream,
+                    Err(e) => {
+                        error!("WebSocket connection error: {}", e);
+                        let _ = self.event_tx.send(BotEvent::ConnectionUpdate {
+                            connection: Some("close".to_string()),
+                            status: format!("error: {}", e),
+                            qr: None,
+                            is_logged_in: false,
+                            is_new_login: None,
+                            last_disconnect: Some(serde_json::json!({
+                                "error": { "message": e.to_string(), "output": { "statusCode": 500 } }
+                            })),
+                        });
+                        return;
+                    }
+                }
             }
         };
 

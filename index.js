@@ -323,6 +323,12 @@ export function makeWASocket(config = {}) {
     try {
       const evt = JSON.parse(eventJson);
       if (evt.type && evt.data !== undefined) {
+        if (evt.type === 'connection.update' && evt.data?.qr && printQR) {
+          try {
+            const qrTerminal = require('qrcode-terminal');
+            qrTerminal.generate(evt.data.qr, { small: true });
+          } catch {}
+        }
         ev.emit(evt.type, evt.data);
       }
     } catch (err) {
