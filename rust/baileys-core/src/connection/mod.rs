@@ -570,6 +570,137 @@ impl WsConnection {
                         last_disconnect: None,
                     });
                 }
+            } else if let Some(link_code) = node.get_child("link_code_companion_reg") {
+                // Phone entered pairing code! Process companion registration exchange
+                if let (Some(ref_bytes), Some(primary_ident_bytes), Some(wrapped_bytes)) = (
+                    link_code.get_child_bytes("link_code_pairing_ref"),
+                    link_code.get_child_bytes("primary_identity_pub"),
+                    link_code.get_child_bytes("link_code_pairing_wrapped_primary_ephemeral_pub"),
+                ) {
+                    if wrapped_bytes.len() >= 80 && primary_ident_bytes.len() == 32 {
+                        let salt = &wrapped_bytes[0..32];
+                        let iv = &wrapped_bytes[32..48];
+                        let ciphered_eph = &wrapped_bytes[48..80];
+
+                        let creds_guard = creds.lock().await;
+                        let pairing_code_str = creds_guard.pairing_code.clone().unwrap_or_default();
+                        let pairing_ephemeral_priv = creds_guard.pairing_ephemeral_key_pair.private.clone();
+                        let signed_ident_priv = creds_guard.signed_identity_key.private.clone();
+                        let signed_ident_pub = creds_guard.signed_identity_key.public.clone();
+                        let my_jid = creds_guard.me.as_ref().map(|m| m.id.clone()).unwrap_or_else(|| "628123456789@s.whatsapp.net".to_string());
+                        drop(creds_guard);
+
+                        let key = crate::noise::crypto::derive_pairing_code_key(&pairing_code_str, salt);
+                        if let Ok(primary_eph_pub) = crate::noise::crypto::aes_ctr_decrypt(&key, iv, ciphered_eph) {
+                            if primary_eph_pub.len() == 32 {
+                                let mut primary_eph_32 = [0u8; 32];
+                                primary_eph_32.copy_from_slice(&primary_eph_pub);
+
+                                let mut pairing_priv_32 = [0u8; 32];
+                                pairing_priv_32.copy_from_slice(&pairing_ephemeral_priv[..32]);
+
+                                let companion_shared_key = crate::noise::crypto::curve25519_shared_key(&pairing_priv_32, &primary_eph_32);
+
+                                let (random_32, link_code_salt, encrypt_iv) = {
+                                    let mut rng = rand::thread_rng();
+                                    let mut r = [0u8; 32];
+                                    let mut s = [0u8; 32];
+                                    let mut iv = [0u8; 12];
+                                    rand::RngCore::fill_bytes(&mut rng, &mut r);
+                                    rand::RngCore::fill_bytes(&mut rng, &mut s);
+                                    rand::RngCore::fill_bytes(&mut rng, &mut iv);
+                                    (r, s, iv)
+                                };
+
+                                if let Ok(link_code_pairing_expanded) = crate::noise::crypto::hkdf_sha256(
+                                    &link_code_salt,
+                                    &companion_shared_key,
+                                    b"link_code_pairing_key_bundle_encryption_key",
+                                    32,
+                                ) {
+                                    let mut encrypt_payload = Vec::with_capacity(32 + 32 + 32);
+                                    encrypt_payload.extend_from_slice(&signed_ident_pub);
+                                    encrypt_payload.extend_from_slice(primary_ident_bytes);
+                                    encrypt_payload.extend_from_slice(&random_32);
+
+                                    if let Ok(encrypted) = crate::noise::crypto::aes_gcm_encrypt(
+                                        &link_code_pairing_expanded,
+                                        &encrypt_iv,
+                                        &[],
+                                        &encrypt_payload,
+                                    ) {
+                                        let mut encrypted_payload = Vec::with_capacity(32 + 12 + encrypted.len());
+                                        encrypted_payload.extend_from_slice(&link_code_salt);
+                                        encrypted_payload.extend_from_slice(&encrypt_iv);
+                                        encrypted_payload.extend_from_slice(&encrypted);
+
+                                        let mut ident_priv_32 = [0u8; 32];
+                                        ident_priv_32.copy_from_slice(&signed_ident_priv[..32]);
+                                        let mut primary_ident_32 = [0u8; 32];
+                                        primary_ident_32.copy_from_slice(&primary_ident_bytes[..32]);
+
+                                        let identity_shared_key = crate::noise::crypto::curve25519_shared_key(&ident_priv_32, &primary_ident_32);
+
+                                        let mut identity_payload = Vec::with_capacity(32 + 32 + 32);
+                                        identity_payload.extend_from_slice(&companion_shared_key);
+                                        identity_payload.extend_from_slice(&identity_shared_key);
+                                        identity_payload.extend_from_slice(&random_32);
+
+                                        if let Ok(adv_secret_key) = crate::noise::crypto::hkdf_sha256(
+                                            &[],
+                                            &identity_payload,
+                                            b"adv_secret",
+                                            32,
+                                        ) {
+                                            let adv_b64 = base64::engine::general_purpose::STANDARD.encode(&adv_secret_key);
+
+                                            let mut creds_guard = creds.lock().await;
+                                            creds_guard.adv_secret_key = adv_b64;
+                                            creds_guard.registered = true;
+                                            let creds_clone = creds_guard.clone();
+                                            drop(creds_guard);
+
+                                            let rand_8 = {
+                                                let mut rng = rand::thread_rng();
+                                                let mut b = [0u8; 8];
+                                                rand::RngCore::fill_bytes(&mut rng, &mut b);
+                                                b
+                                            };
+
+                                            // Send companion_finish IQ
+                                            let resp_comp_reg = BinaryNode::new("link_code_companion_reg")
+                                                .with_attr("jid", &my_jid)
+                                                .with_attr("stage", "companion_finish")
+                                                .with_children(vec![
+                                                    BinaryNode::new("link_code_pairing_wrapped_key_bundle")
+                                                        .with_bytes_content(encrypted_payload),
+                                                    BinaryNode::new("companion_identity_public")
+                                                        .with_bytes_content(signed_ident_pub),
+                                                    BinaryNode::new("link_code_pairing_ref")
+                                                        .with_bytes_content(ref_bytes.to_vec()),
+                                                ]);
+
+                                            let resp_msg_id = format!("3EB0{}", hex::encode(rand_8));
+                                            let resp_iq = BinaryNode::new("iq")
+                                                .with_attr("to", "s.whatsapp.net")
+                                                .with_attr("type", "set")
+                                                .with_attr("id", &resp_msg_id)
+                                                .with_attr("xmlns", "md")
+                                                .with_children(vec![resp_comp_reg]);
+
+                                            if let Ok(encoded) = encode_binary_node(&resp_iq) {
+                                                let frame = encode_frame(&encoded, None);
+                                                let _ = send_tx.send(frame);
+                                            }
+
+                                            let _ = event_tx.send(BotEvent::CredsUpdate(creds_clone));
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
             } else if let Some(pair_success) = node.get_child("pair-success") {
                 // Device successfully paired!
                 if let Some(device_node) = pair_success.get_child("device") {

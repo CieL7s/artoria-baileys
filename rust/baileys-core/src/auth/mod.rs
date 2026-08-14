@@ -65,6 +65,7 @@ pub struct AuthenticationCreds {
     pub account_sync_counter: u32,
     pub next_pre_key_id: u32,
     pub first_unuploaded_pre_key_id: u32,
+    pub pairing_code: Option<String>,
 }
 
 impl AuthenticationCreds {
@@ -106,6 +107,7 @@ impl AuthenticationCreds {
             account_sync_counter: 0,
             next_pre_key_id: 1,
             first_unuploaded_pre_key_id: 1,
+            pairing_code: None,
         }
     }
 }

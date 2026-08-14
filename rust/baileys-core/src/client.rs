@@ -6,9 +6,9 @@ use crate::auth::{AuthError, FileAuthState};
 use crate::connection::WsConnection;
 use crate::events::BotEvent;
 use crate::message::MessageBuilder;
-use crate::noise::crypto::{aes_ctr_encrypt, hkdf_sha256};
+use crate::noise::crypto::aes_ctr_encrypt;
 use crate::protocol::{BinaryNode, ProtocolError};
-use rand::{Rng, RngCore};
+use rand::RngCore;
 
 pub struct WhatsAppClientCore {
     pub auth: Arc<Mutex<FileAuthState>>,
@@ -109,47 +109,39 @@ impl WhatsAppClientCore {
 
     pub async fn request_pairing_code(&self, phone_number: &str) -> Result<String, AuthError> {
         let mut rng = rand::thread_rng();
-        const CHARSET: &[u8] = b"23456789ABCDEFGHJKLMNPQRSTVWXYZ";
-        let raw_code: String = (0..8)
-            .map(|_| {
-                let idx = rng.gen_range(0..CHARSET.len());
-                CHARSET[idx] as char
-            })
-            .collect();
+        let mut rand_5 = [0u8; 5];
+        rng.fill_bytes(&mut rand_5);
+        let raw_code = crate::noise::crypto::bytes_to_crockford(&rand_5);
 
         let mut salt = [0u8; 32];
+        let mut random_iv = [0u8; 16];
         rng.fill_bytes(&mut salt);
+        rng.fill_bytes(&mut random_iv);
 
-        let pairing_key = hkdf_sha256(
-            &salt,
-            raw_code.as_bytes(),
-            b"link_code_pairing_key_bundle_encryption_key",
-            32,
-        )
-        .map_err(|_| AuthError::KeyNotFound)?;
-
-        let iv = &pairing_key[0..16];
-        let key = &pairing_key[16..32];
+        let key = crate::noise::crypto::derive_pairing_code_key(&raw_code, &salt);
 
         let mut auth_guard = self.auth.lock().await;
         let encrypted_ephemeral = aes_ctr_encrypt(
-            key,
-            iv,
+            &key,
+            &random_iv,
             &auth_guard.creds.pairing_ephemeral_key_pair.public,
         )
         .map_err(|_| AuthError::KeyNotFound)?;
 
-        let mut wrapped_ephemeral = Vec::with_capacity(64);
+        let mut wrapped_ephemeral = Vec::with_capacity(80);
         wrapped_ephemeral.extend_from_slice(&salt);
+        wrapped_ephemeral.extend_from_slice(&random_iv);
         wrapped_ephemeral.extend_from_slice(&encrypted_ephemeral);
 
         let noise_pub = auth_guard.creds.noise_key.public.clone();
+        auth_guard.creds.pairing_code = Some(raw_code.clone());
         auth_guard.creds.me = Some(crate::auth::ContactInfo {
             id: format!("{}@s.whatsapp.net", phone_number),
             name: Some("~".to_string()),
             notify: None,
             verified_name: None,
         });
+        let _ = auth_guard.save_creds();
         drop(auth_guard);
 
         let wrapped_node = BinaryNode::new("link_code_pairing_wrapped_companion_ephemeral_pub")
@@ -157,9 +149,9 @@ impl WhatsAppClientCore {
         let companion_auth = BinaryNode::new("companion_server_auth_key_pub")
             .with_bytes_content(noise_pub);
         let platform_id = BinaryNode::new("companion_platform_id")
-            .with_bytes_content(vec![0x00]);
+            .with_string_content("1");
         let platform_display = BinaryNode::new("companion_platform_display")
-            .with_string_content("Chrome (Windows)");
+            .with_string_content("Chrome (Ubuntu)");
         let nonce = BinaryNode::new("link_code_pairing_nonce")
             .with_string_content("0");
 

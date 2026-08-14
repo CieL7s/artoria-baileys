@@ -104,6 +104,38 @@ pub fn hmac_sha256(key: &[u8], data: &[u8]) -> [u8; 32] {
     mac.finalize().into_bytes().into()
 }
 
+pub fn derive_pairing_code_key(pairing_code: &str, salt: &[u8]) -> [u8; 32] {
+    let mut derived = [0u8; 32];
+    pbkdf2::pbkdf2_hmac::<Sha256>(pairing_code.as_bytes(), salt, 131072, &mut derived);
+    derived
+}
+
+const CROCKFORD_CHARACTERS: &[u8] = b"123456789ABCDEFGHJKLMNPQRSTVWXYZ";
+
+pub fn bytes_to_crockford(buffer: &[u8]) -> String {
+    let mut value: u64 = 0;
+    let mut bit_count = 0;
+    let mut crockford = String::new();
+
+    for &element in buffer {
+        value = (value << 8) | (element as u64 & 0xff);
+        bit_count += 8;
+
+        while bit_count >= 5 {
+            let index = ((value >> (bit_count - 5)) & 31) as usize;
+            crockford.push(CROCKFORD_CHARACTERS[index] as char);
+            bit_count -= 5;
+        }
+    }
+
+    if bit_count > 0 {
+        let index = ((value << (5 - bit_count)) & 31) as usize;
+        crockford.push(CROCKFORD_CHARACTERS[index] as char);
+    }
+
+    crockford
+}
+
 pub fn curve25519_shared_key(private_key: &[u8; 32], public_key: &[u8; 32]) -> [u8; 32] {
     let secret = StaticSecret::from(*private_key);
     let public = PublicKey::from(*public_key);
