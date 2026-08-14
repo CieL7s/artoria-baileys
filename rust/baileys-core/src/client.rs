@@ -163,7 +163,7 @@ impl WhatsAppClientCore {
 
         let msg_id = format!("3EB0{}", hex::encode(rand::random::<[u8; 8]>()));
         let iq_node = BinaryNode::new("iq")
-            .with_attr("to", "s.whatsapp.net")
+            .with_attr("to", "@s.whatsapp.net")
             .with_attr("type", "set")
             .with_attr("id", &msg_id)
             .with_attr("xmlns", "md")
@@ -171,8 +171,7 @@ impl WhatsAppClientCore {
 
         let _ = self.outgoing_tx.send(iq_node);
 
-        let formatted_code = format!("{}-{}", &raw_code[0..4], &raw_code[4..8]);
-        Ok(formatted_code)
+        Ok(raw_code)
     }
 
     pub async fn send_message(&self, to_jid: &str, text: &str) -> Result<String, ProtocolError> {
