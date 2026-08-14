@@ -800,6 +800,15 @@ impl WsConnection {
                         ack_iq = ack_iq.with_attr("id", msg_id);
                     }
                     Self::send_encrypted_node(&ack_iq, noise_handler, send_tx).await;
+                } else if iq_type == "error" {
+                    if let Some(err_node) = node.get_child("error") {
+                        let text = err_node.get_attr("text").unwrap_or("unknown");
+                        let code = err_node.get_attr("code").unwrap_or("unknown");
+                        println!("\n[WhatsApp IQ Error] code={}, text={}", code, text);
+                        if code == "429" || text == "rate-overlimit" {
+                            println!("[⚠️ Pairing Rate Limit] Nomor ini sedang terkena rate-overlimit (429) dari server WhatsApp karena terlalu sering request kode. Silakan tunggu 5-10 menit atau gunakan opsi [1] Scan QR Code!\n");
+                        }
+                    }
                 }
             }
 
