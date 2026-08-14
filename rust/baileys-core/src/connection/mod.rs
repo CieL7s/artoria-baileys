@@ -583,6 +583,18 @@ impl WsConnection {
                 });
             }
         } else if node.tag == "iq" {
+            // Acknowledge IQ set stanza
+            if let (Some(msg_id), Some("set")) = (node.get_attr("id"), node.get_attr("type")) {
+                let ack_iq = BinaryNode::new("iq")
+                    .with_attr("to", "s.whatsapp.net")
+                    .with_attr("type", "result")
+                    .with_attr("id", msg_id);
+                if let Ok(encoded) = encode_binary_node(&ack_iq) {
+                    let frame = encode_frame(&encoded, None);
+                    let _ = send_tx.send(frame);
+                }
+            }
+
             // Handle QR Pair-Device Node
             if let Some(pair_device) = node.get_child("pair-device") {
                 if let Some(ref_data) = pair_device.get_child_string("ref") {
