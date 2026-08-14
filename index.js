@@ -404,6 +404,99 @@ export function bytesToCrockford(buffer) {
   return crockford.join('');
 }
 
+export function derivePairingCodeKey(pairingCode, salt) {
+  return new Promise((resolve, reject) => {
+    crypto.pbkdf2(pairingCode, salt, 131072, 32, 'sha256', (err, derivedKey) => {
+      if (err) reject(err);
+      else resolve(derivedKey);
+    });
+  });
+}
+
+export function aesEncryptCTR(plaintext, key, iv) {
+  const cipher = crypto.createCipheriv('aes-256-ctr', key, iv);
+  return Buffer.concat([cipher.update(plaintext), cipher.final()]);
+}
+
+export function aesDecryptCTR(ciphertext, key, iv) {
+  const decipher = crypto.createDecipheriv('aes-256-ctr', key, iv);
+  return Buffer.concat([decipher.update(ciphertext), decipher.final()]);
+}
+
+export async function generatePairingKey(pairingCode, ephemeralPubKey) {
+  const salt = crypto.randomBytes(32);
+  const randomIv = crypto.randomBytes(16);
+  const key = await derivePairingCodeKey(pairingCode, salt);
+  const ciphered = aesEncryptCTR(ephemeralPubKey, key, randomIv);
+  return Buffer.concat([salt, randomIv, ciphered]);
+}
+
+export function getCompanionPlatformId(browser) {
+  const platformName = (browser?.[0] || 'Chrome').toLowerCase();
+  if (platformName.includes('chrome')) return 49;
+  if (platformName.includes('firefox')) return 50;
+  if (platformName.includes('safari')) return 51;
+  if (platformName.includes('edge')) return 52;
+  if (platformName.includes('opera')) return 53;
+  if (platformName.includes('desktop') || platformName.includes('windows')) return 1;
+  if (platformName.includes('mac')) return 2;
+  if (platformName.includes('linux') || platformName.includes('ubuntu')) return 3;
+  return 49;
+}
+
+export async function buildPairingRegistrationNode(phoneNumber, pairingCode, noisePublicKey, ephemeralPublicKey, browser = ['Ubuntu', 'Chrome', '20.0.04']) {
+  const sanitizedNumber = (phoneNumber || '').replace(/[^0-9]/g, '');
+  const jid = jidEncode(sanitizedNumber, 's.whatsapp.net');
+  const wrappedEphemeralPub = await generatePairingKey(pairingCode, ephemeralPublicKey);
+
+  return {
+    tag: 'iq',
+    attrs: {
+      to: 's.whatsapp.net',
+      type: 'set',
+      id: generateMessageID('3EB0PAIR'),
+      xmlns: 'md'
+    },
+    content: [
+      {
+        tag: 'link_code_companion_reg',
+        attrs: {
+          jid,
+          stage: 'companion_hello',
+          should_show_push_notification: 'true'
+        },
+        content: [
+          {
+            tag: 'link_code_pairing_wrapped_companion_ephemeral_pub',
+            attrs: {},
+            content: wrappedEphemeralPub
+          },
+          {
+            tag: 'companion_server_auth_key_pub',
+            attrs: {},
+            content: noisePublicKey
+          },
+          {
+            tag: 'companion_platform_id',
+            attrs: {},
+            content: String(getCompanionPlatformId(browser))
+          },
+          {
+            tag: 'companion_platform_display',
+            attrs: {},
+            content: `${browser[1] || 'Chrome'} (${browser[0] || 'Ubuntu'})`
+          },
+          {
+            tag: 'link_code_pairing_nonce',
+            attrs: {},
+            content: '0'
+          }
+        ]
+      }
+    ]
+  };
+}
+
 /**
  * Creates a high-level Auriel-Baileys WhatsApp Web Client instance.
  * Optimized with pure Rust core for ultra-fast cryptography & zero-copy WABinary parsing.
@@ -469,14 +562,53 @@ export function makeWASocket(config = {}) {
     async requestPairingCode(phoneNumber, customPairingCode) {
       const sanitizedNumber = (phoneNumber || '').replace(/[^0-9]/g, '');
       const pairingCode = customPairingCode || bytesToCrockford(crypto.randomBytes(5));
+
       if (authState?.creds) {
+        if (!authState.creds.noiseKey) {
+          const keyPair = crypto.generateKeyPairSync('x25519');
+          authState.creds.noiseKey = {
+            public: keyPair.publicKey.export({ type: 'spki', format: 'der' }).subarray(-32),
+            private: keyPair.privateKey.export({ type: 'pkcs8', format: 'der' }).subarray(-32)
+          };
+        }
+
+        if (!authState.creds.pairingEphemeralKeyPair) {
+          const ephem = crypto.generateKeyPairSync('x25519');
+          authState.creds.pairingEphemeralKeyPair = {
+            public: ephem.publicKey.export({ type: 'spki', format: 'der' }).subarray(-32),
+            private: ephem.privateKey.export({ type: 'pkcs8', format: 'der' }).subarray(-32)
+          };
+        }
+
+        if (!authState.creds.signedIdentityKey) {
+          const ident = crypto.generateKeyPairSync('x25519');
+          authState.creds.signedIdentityKey = {
+            public: ident.publicKey.export({ type: 'spki', format: 'der' }).subarray(-32),
+            private: ident.privateKey.export({ type: 'pkcs8', format: 'der' }).subarray(-32)
+          };
+        }
+
         authState.creds.pairingCode = pairingCode;
         authState.creds.me = {
           id: jidEncode(sanitizedNumber, 's.whatsapp.net'),
           name: '~'
         };
         ev.emit('creds.update', authState.creds);
+
+        try {
+          const pairingNode = await buildPairingRegistrationNode(
+            sanitizedNumber,
+            pairingCode,
+            authState.creds.noiseKey.public,
+            authState.creds.pairingEphemeralKeyPair.public,
+            config.browser || ['Ubuntu', 'Chrome', '20.0.04']
+          );
+          nativeClient.sendRawNode(JSON.stringify(pairingNode));
+        } catch (err) {
+          console.warn('[Artoria-Baileys] Warning sending pairing node to native core:', err);
+        }
       }
+
       return pairingCode;
     },
 
