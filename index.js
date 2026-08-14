@@ -413,21 +413,46 @@ export function derivePairingCodeKey(pairingCode, salt) {
   });
 }
 
+export function toBuffer(val) {
+  if (!val) return Buffer.alloc(0);
+  if (Buffer.isBuffer(val)) return val;
+  if (val instanceof Uint8Array) return Buffer.from(val);
+  if (typeof val === 'string') {
+    if (val.length % 2 === 0 && /^[0-9a-fA-F]+$/.test(val)) {
+      try { return Buffer.from(val, 'hex'); } catch {}
+    }
+    try { return Buffer.from(val, 'base64'); } catch {}
+    return Buffer.from(val, 'utf-8');
+  }
+  if (typeof val === 'object') {
+    if (val.type === 'Buffer' && Array.isArray(val.data)) {
+      return Buffer.from(val.data);
+    }
+    if (Array.isArray(val)) {
+      return Buffer.from(val);
+    }
+    if (val.data) {
+      return toBuffer(val.data);
+    }
+  }
+  return Buffer.from(val);
+}
+
 export function aesEncryptCTR(plaintext, key, iv) {
-  const cipher = crypto.createCipheriv('aes-256-ctr', key, iv);
-  return Buffer.concat([cipher.update(plaintext), cipher.final()]);
+  const cipher = crypto.createCipheriv('aes-256-ctr', toBuffer(key), toBuffer(iv));
+  return Buffer.concat([cipher.update(toBuffer(plaintext)), cipher.final()]);
 }
 
 export function aesDecryptCTR(ciphertext, key, iv) {
-  const decipher = crypto.createDecipheriv('aes-256-ctr', key, iv);
-  return Buffer.concat([decipher.update(ciphertext), decipher.final()]);
+  const decipher = crypto.createDecipheriv('aes-256-ctr', toBuffer(key), toBuffer(iv));
+  return Buffer.concat([decipher.update(toBuffer(ciphertext)), decipher.final()]);
 }
 
 export async function generatePairingKey(pairingCode, ephemeralPubKey) {
   const salt = crypto.randomBytes(32);
   const randomIv = crypto.randomBytes(16);
   const key = await derivePairingCodeKey(pairingCode, salt);
-  const ciphered = aesEncryptCTR(ephemeralPubKey, key, randomIv);
+  const ciphered = aesEncryptCTR(toBuffer(ephemeralPubKey), key, randomIv);
   return Buffer.concat([salt, randomIv, ciphered]);
 }
 
@@ -447,7 +472,7 @@ export function getCompanionPlatformId(browser) {
 export async function buildPairingRegistrationNode(phoneNumber, pairingCode, noisePublicKey, ephemeralPublicKey, browser = ['Ubuntu', 'Chrome', '20.0.04']) {
   const sanitizedNumber = (phoneNumber || '').replace(/[^0-9]/g, '');
   const jid = jidEncode(sanitizedNumber, 's.whatsapp.net');
-  const wrappedEphemeralPub = await generatePairingKey(pairingCode, ephemeralPublicKey);
+  const wrappedEphemeralPub = await generatePairingKey(pairingCode, toBuffer(ephemeralPublicKey));
 
   return {
     tag: 'iq',
@@ -474,7 +499,7 @@ export async function buildPairingRegistrationNode(phoneNumber, pairingCode, noi
           {
             tag: 'companion_server_auth_key_pub',
             attrs: {},
-            content: noisePublicKey
+            content: toBuffer(noisePublicKey)
           },
           {
             tag: 'companion_platform_id',
@@ -644,8 +669,8 @@ export function makeWASocket(config = {}) {
           const pairingNode = await buildPairingRegistrationNode(
             sanitizedNumber,
             pairingCode,
-            authState.creds.noiseKey.public,
-            authState.creds.pairingEphemeralKeyPair.public,
+            toBuffer(authState.creds.noiseKey.public),
+            toBuffer(authState.creds.pairingEphemeralKeyPair.public),
             config.browser || ['Ubuntu', 'Chrome', '20.0.04']
           );
           nativeClient.sendRawNode(JSON.stringify(pairingNode));
