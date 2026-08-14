@@ -28,11 +28,10 @@
   "files": [
     "index.js",
     "index.d.ts",
-    "baileys_napi.node",
+    "*.node",
     "WAProto/**/*",
     "README.md",
-    "LICENSE",
-    "PORTING.md"
+    "LICENSE"
   ],
   "keywords": [
     "whatsapp",

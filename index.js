@@ -16,7 +16,12 @@ function loadNativeBinding() {
   const candidatePaths = [
     path.resolve(__dirname, 'baileys_napi.node'),
     path.resolve(__dirname, `baileys_napi.${platform}-${arch}.node`),
+    path.resolve(__dirname, `baileys_napi.${platform}-${arch}-gnu.node`),
+    path.resolve(__dirname, `baileys_napi.${platform}-${arch}-msvc.node`),
+    path.resolve(__dirname, `baileys_napi.${platform}-${arch}-musl.node`),
     path.resolve(__dirname, 'dist-binaries', `baileys_napi.${platform}-${arch}.node`),
+    path.resolve(__dirname, 'dist-binaries', `baileys_napi.${platform}-${arch}-gnu.node`),
+    path.resolve(__dirname, 'dist-binaries', `baileys_napi.${platform}-${arch}-msvc.node`),
     path.resolve(__dirname, 'binaries', `baileys_napi.${platform}-${arch}.node`),
   ];
 
