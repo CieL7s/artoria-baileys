@@ -118,6 +118,35 @@ impl AuthenticationCreds {
             pairing_code: None,
         }
     }
+
+    pub fn ensure_valid_signatures(&mut self) {
+        if self.signed_identity_key.private.len() >= 32 && self.signed_pre_key.key_pair.public.len() >= 32 {
+            let mut ident_priv = [0u8; 32];
+            ident_priv.copy_from_slice(&self.signed_identity_key.private[..32]);
+            ident_priv[0] &= 248;
+            ident_priv[31] &= 127;
+            ident_priv[31] |= 64;
+            self.signed_identity_key.private = ident_priv.to_vec();
+
+            let mut msg = vec![0x05u8];
+            msg.extend_from_slice(&self.signed_pre_key.key_pair.public[..32]);
+
+            let is_valid = if self.signed_identity_key.public.len() >= 32 && self.signed_pre_key.signature.len() == 64 {
+                let mut pk = [0u8; 32];
+                pk.copy_from_slice(&self.signed_identity_key.public[..32]);
+                let mut sig = [0u8; 64];
+                sig.copy_from_slice(&self.signed_pre_key.signature[..64]);
+                crate::noise::crypto::curve25519_verify(&pk, &msg, &sig)
+            } else {
+                false
+            };
+
+            if !is_valid {
+                let new_sig = crate::noise::crypto::curve25519_sign(&ident_priv, &msg);
+                self.signed_pre_key.signature = new_sig.to_vec();
+            }
+        }
+    }
 }
 
 impl Default for AuthenticationCreds {
@@ -193,7 +222,15 @@ impl FileAuthState {
         let creds = if creds_path.exists() {
             let data = fs::read_to_string(&creds_path)?;
             match serde_json::from_str::<AuthenticationCreds>(&data) {
-                Ok(c) => c,
+                Ok(mut c) => {
+                    if !c.registered {
+                        c.ensure_valid_signatures();
+                        if let Ok(serialized) = serde_json::to_string_pretty(&c) {
+                            let _ = fs::write(&creds_path, serialized);
+                        }
+                    }
+                    c
+                }
                 Err(_) => {
                     let new_creds = AuthenticationCreds::new();
                     if let Ok(serialized) = serde_json::to_string_pretty(&new_creds) {
