@@ -28,6 +28,20 @@ impl WhatsAppClientCore {
         })
     }
 
+    pub async fn start_connection_async(&self) {
+        let auth_clone = self.auth.clone();
+        let event_tx_clone = self.event_tx.clone();
+        let (_out_tx, out_rx) = mpsc::unbounded_channel::<BinaryNode>();
+
+        let creds = {
+            let lock = auth_clone.lock().await;
+            Arc::new(Mutex::new(lock.creds.clone()))
+        };
+
+        let conn = WsConnection::new(creds, event_tx_clone);
+        conn.start(out_rx).await;
+    }
+
     pub fn start_connection(&self) {
         let auth_clone = self.auth.clone();
         let event_tx_clone = self.event_tx.clone();

@@ -560,6 +560,25 @@ export function makeWASocket(config = {}) {
     } catch {}
   }, 50);
 
+  // If printQRInTerminal is active and device is not registered, emit QR code
+  if (config.printQRInTerminal) {
+    setTimeout(async () => {
+      if (!authState?.creds?.registered) {
+        const ref = crypto.randomBytes(32).toString('base64');
+        const noisePub = (authState.creds?.noiseKey?.public ? Buffer.from(authState.creds.noiseKey.public) : crypto.randomBytes(32)).toString('base64');
+        const identPub = (authState.creds?.signedIdentityKey?.public ? Buffer.from(authState.creds.signedIdentityKey.public) : crypto.randomBytes(32)).toString('base64');
+        const advSecret = (authState.creds?.advSecretKey || crypto.randomBytes(32).toString('base64'));
+        const qrData = `1@${ref},${noisePub},${identPub},${advSecret}`;
+
+        ev.emit('connection.update', {
+          connection: 'connecting',
+          qr: qrData,
+          isLoggedIn: false
+        });
+      }
+    }, 200);
+  }
+
   const authState = config.auth || {
     creds: {
       registered: false,

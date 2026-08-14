@@ -475,7 +475,10 @@ impl WhatsAppClient {
 
     #[napi]
     pub fn connect(&self) {
-        self.client.start_connection();
+        let client = self.client.clone();
+        self.rt.spawn(async move {
+            client.start_connection_async().await;
+        });
     }
 
     #[napi]
