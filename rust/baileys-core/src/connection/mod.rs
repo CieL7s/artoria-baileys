@@ -637,60 +637,21 @@ impl WsConnection {
                     r#type: "notify".to_string(),
                 });
             }
-        } else if node.tag == "iq" {
-            println!("[WS IQ Detail] tag={} attrs={:?}", node.tag, node.attrs);
-            if let Some(BinaryNodeContent::List(children)) = &node.content {
-                for (i, c) in children.iter().enumerate() {
-                    println!("  [Child {}] tag={} attrs={:?} content={:?}", i, c.tag, c.attrs, c.content);
-                }
+        } else if node.tag == "notification" {
+            // Auto-acknowledge notifications
+            if let Some(msg_id) = node.get_attr("id") {
+                let from_jid = node.get_attr("from").unwrap_or("@s.whatsapp.net");
+                let notif_type = node.get_attr("type").unwrap_or("");
+                let ack_node = BinaryNode::new("ack")
+                    .with_attr("id", msg_id)
+                    .with_attr("class", "notification")
+                    .with_attr("type", notif_type)
+                    .with_attr("to", from_jid);
+                Self::send_encrypted_node(&ack_node, noise_handler, send_tx).await;
             }
 
-            // Acknowledge IQ set stanza
-            if let (Some(msg_id), Some("set")) = (node.get_attr("id"), node.get_attr("type")) {
-                let ack_iq = BinaryNode::new("iq")
-                    .with_attr("to", "@s.whatsapp.net")
-                    .with_attr("type", "result")
-                    .with_attr("id", msg_id);
-                Self::send_encrypted_node(&ack_iq, noise_handler, send_tx).await;
-            }
-
-            // Handle QR Pair-Device Node
-            if let Some(pair_device) = node.get_child("pair-device") {
-                if let Some(ref_data) = pair_device.get_child_string("ref") {
-                    let creds_guard = creds.lock().await;
-                    let noise_pub_b64 = base64::engine::general_purpose::STANDARD.encode(&creds_guard.noise_key.public);
-                    let ident_pub_b64 = base64::engine::general_purpose::STANDARD.encode(&creds_guard.signed_identity_key.public);
-                    let adv_secret_b64 = creds_guard.adv_secret_key.clone();
-                    drop(creds_guard);
-
-                    let qr_url = format!(
-                        "https://wa.me/settings/linked_devices#{},{},{},{},1",
-                        ref_data.trim(), noise_pub_b64, ident_pub_b64, adv_secret_b64
-                    );
-
-                    if print_qr_terminal {
-                        match qrcode::QrCode::new(qr_url.as_bytes()) {
-                            Ok(code) => {
-                                let string = code.render::<char>().quiet_zone(true).module_dimensions(2, 1).build();
-                                println!("\n{}\n", string);
-                            }
-                            Err(e) => {
-                                println!("\n[WhatsApp Linked Devices QR Data]: {}\n(Error: {:?})\n", qr_url, e);
-                            }
-                        }
-                    }
-
-                    let _ = event_tx.send(BotEvent::ConnectionUpdate {
-                        connection: Some("connecting".to_string()),
-                        status: "qr".to_string(),
-                        qr: Some(qr_url),
-                        is_logged_in: false,
-                        is_new_login: None,
-                        last_disconnect: None,
-                    });
-                }
-            } else if let Some(link_code) = node.get_child("link_code_companion_reg") {
-                // Phone entered pairing code! Process companion registration exchange
+            // Handle Phone Pairing Code Submission (primary_hello notification)
+            if let Some(link_code) = node.get_child("link_code_companion_reg") {
                 if let (Some(ref_bytes), Some(primary_ident_bytes), Some(wrapped_bytes)) = (
                     link_code.get_child_bytes("link_code_pairing_ref"),
                     link_code.get_child_bytes("primary_identity_pub"),
@@ -810,12 +771,78 @@ impl WsConnection {
                                             Self::send_encrypted_node(&resp_iq, noise_handler, send_tx).await;
 
                                             let _ = event_tx.send(BotEvent::CredsUpdate(creds_clone));
+                                            let _ = event_tx.send(BotEvent::ConnectionUpdate {
+                                                connection: Some("open".to_string()),
+                                                status: "open".to_string(),
+                                                qr: None,
+                                                is_logged_in: true,
+                                                is_new_login: Some(true),
+                                                last_disconnect: None,
+                                            });
                                         }
                                     }
                                 }
                             }
                         }
                     }
+                }
+            }
+        } else if node.tag == "iq" {
+            println!("[WS IQ Detail] tag={} attrs={:?}", node.tag, node.attrs);
+            if let Some(BinaryNodeContent::List(children)) = &node.content {
+                for (i, c) in children.iter().enumerate() {
+                    println!("  [Child {}] tag={} attrs={:?} content={:?}", i, c.tag, c.attrs, c.content);
+                }
+            }
+
+            // Acknowledge IQ set or ping get stanza
+            if let Some(msg_id) = node.get_attr("id") {
+                if let Some(iq_type) = node.get_attr("type") {
+                    if iq_type == "set" || iq_type == "get" {
+                        let from_jid = node.get_attr("from").unwrap_or("@s.whatsapp.net");
+                        let ack_iq = BinaryNode::new("iq")
+                            .with_attr("to", from_jid)
+                            .with_attr("type", "result")
+                            .with_attr("id", msg_id);
+                        Self::send_encrypted_node(&ack_iq, noise_handler, send_tx).await;
+                    }
+                }
+            }
+
+            // Handle QR Pair-Device Node
+            if let Some(pair_device) = node.get_child("pair-device") {
+                if let Some(ref_data) = pair_device.get_child_string("ref") {
+                    let creds_guard = creds.lock().await;
+                    let noise_pub_b64 = base64::engine::general_purpose::STANDARD.encode(&creds_guard.noise_key.public);
+                    let ident_pub_b64 = base64::engine::general_purpose::STANDARD.encode(&creds_guard.signed_identity_key.public);
+                    let adv_secret_b64 = creds_guard.adv_secret_key.clone();
+                    drop(creds_guard);
+
+                    let qr_url = format!(
+                        "https://wa.me/settings/linked_devices#{},{},{},{},1",
+                        ref_data.trim(), noise_pub_b64, ident_pub_b64, adv_secret_b64
+                    );
+
+                    if print_qr_terminal {
+                        match qrcode::QrCode::new(qr_url.as_bytes()) {
+                            Ok(code) => {
+                                let string = code.render::<char>().quiet_zone(true).module_dimensions(2, 1).build();
+                                println!("\n{}\n", string);
+                            }
+                            Err(e) => {
+                                println!("\n[WhatsApp Linked Devices QR Data]: {}\n(Error: {:?})\n", qr_url, e);
+                            }
+                        }
+                    }
+
+                    let _ = event_tx.send(BotEvent::ConnectionUpdate {
+                        connection: Some("connecting".to_string()),
+                        status: "qr".to_string(),
+                        qr: Some(qr_url),
+                        is_logged_in: false,
+                        is_new_login: None,
+                        last_disconnect: None,
+                    });
                 }
             } else if let Some(pair_success) = node.get_child("pair-success") {
                 // Device successfully paired!
