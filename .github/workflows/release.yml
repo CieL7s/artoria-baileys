@@ -61,7 +61,7 @@ jobs:
           bun-version: latest
 
       - name: Build Native Addon (Release)
-        run: cargo build --package baileys-napi --release --target ${{ matrix.target }}
+        run: cargo build --manifest-path rust/Cargo.toml --package baileys-napi --release --target ${{ matrix.target }}
 
       - name: Prepare Binary Artifact
         shell: bash
