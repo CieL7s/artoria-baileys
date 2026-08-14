@@ -7,9 +7,9 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 import fs from 'fs';
 import crypto from 'crypto';
-import qrcode from 'qrcode-terminal';
 
 const require = createRequire(import.meta.url);
+const qrcode = require('qrcode-terminal');
 
 function loadNativeBinding() {
   const platform = process.platform;
@@ -570,12 +570,7 @@ export function makeWASocket(config = {}) {
     ev.on('connection.update', (update) => {
       if (update.qr) {
         try {
-          const gen = qrcode?.generate || qrcode?.default?.generate;
-          if (typeof gen === 'function') {
-            gen(update.qr, { small: true });
-          } else {
-            console.log('\n--- SCAN THIS WHATSAPP QR CODE ---\n' + update.qr + '\n----------------------------------\n');
-          }
+          qrcode.generate(update.qr, { small: true });
         } catch {
           console.log('\n--- SCAN THIS WHATSAPP QR CODE ---\n' + update.qr + '\n----------------------------------\n');
         }
