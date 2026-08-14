@@ -14,7 +14,7 @@ use crate::noise::framing::{encode_frame, FrameBuffer};
 use crate::noise::TransportState;
 use crate::proto::{
     AppVersion, ClientFinish, ClientHello, ClientPayload, DevicePairingData, DeviceProps,
-    HandshakeMessage, UserAgent, WebInfo,
+    HandshakeMessage, HistorySyncConfig, UserAgent, WebInfo,
 };
 use crate::protocol::{decode_binary_node, encode_binary_node, BinaryNode, BinaryNodeContent};
 use base64::Engine;
@@ -193,6 +193,24 @@ impl NoiseHandler {
                 }),
                 platform_type: Some(1), // Chrome
                 require_full_sync: Some(false),
+                history_sync_config: Some(HistorySyncConfig {
+                    storage_quota_mb: Some(10240),
+                    inline_initial_payload_in_e2_ee_msg: Some(true),
+                    recent_sync_days_limit: None,
+                    support_call_log_history: Some(false),
+                    support_bot_user_agent_chat_history: Some(true),
+                    support_cag_reactions_and_polls: Some(true),
+                    support_biz_hosted_msg: Some(true),
+                    support_recent_sync_chunk_message_count_tuning: Some(true),
+                    support_hosted_group_msg: Some(true),
+                    support_fbid_bot_chat_history: Some(true),
+                    support_add_on_history_sync_migration: None,
+                    support_message_association: Some(true),
+                    support_group_history: Some(false),
+                    on_demand_ready: None,
+                    support_guest_chat: None,
+                    ..Default::default()
+                }),
             };
             let _ = device_props.encode(&mut device_props_bytes);
 

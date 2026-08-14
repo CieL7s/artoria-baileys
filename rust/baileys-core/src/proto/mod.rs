@@ -174,6 +174,48 @@ pub struct ClientPayload {
 }
 
 #[derive(Clone, PartialEq, ProstMessage, Serialize, Deserialize)]
+pub struct HistorySyncConfig {
+    #[prost(uint32, optional, tag = "1")]
+    pub full_sync_days_limit: Option<u32>,
+    #[prost(uint32, optional, tag = "2")]
+    pub full_sync_size_mb_limit: Option<u32>,
+    #[prost(uint32, optional, tag = "3")]
+    pub storage_quota_mb: Option<u32>,
+    #[prost(bool, optional, tag = "4")]
+    pub inline_initial_payload_in_e2_ee_msg: Option<bool>,
+    #[prost(uint32, optional, tag = "5")]
+    pub recent_sync_days_limit: Option<u32>,
+    #[prost(bool, optional, tag = "6")]
+    pub support_call_log_history: Option<bool>,
+    #[prost(bool, optional, tag = "7")]
+    pub support_bot_user_agent_chat_history: Option<bool>,
+    #[prost(bool, optional, tag = "8")]
+    pub support_cag_reactions_and_polls: Option<bool>,
+    #[prost(bool, optional, tag = "9")]
+    pub support_biz_hosted_msg: Option<bool>,
+    #[prost(bool, optional, tag = "10")]
+    pub support_recent_sync_chunk_message_count_tuning: Option<bool>,
+    #[prost(bool, optional, tag = "11")]
+    pub support_hosted_group_msg: Option<bool>,
+    #[prost(bool, optional, tag = "12")]
+    pub support_fbid_bot_chat_history: Option<bool>,
+    #[prost(bool, optional, tag = "13")]
+    pub support_add_on_history_sync_migration: Option<bool>,
+    #[prost(bool, optional, tag = "14")]
+    pub support_message_association: Option<bool>,
+    #[prost(bool, optional, tag = "15")]
+    pub support_group_history: Option<bool>,
+    #[prost(bool, optional, tag = "16")]
+    pub on_demand_ready: Option<bool>,
+    #[prost(bool, optional, tag = "17")]
+    pub support_guest_chat: Option<bool>,
+    #[prost(bool, optional, tag = "18")]
+    pub complete_on_demand_ready: Option<bool>,
+    #[prost(uint32, optional, tag = "19")]
+    pub thumbnail_sync_days_limit: Option<u32>,
+}
+
+#[derive(Clone, PartialEq, ProstMessage, Serialize, Deserialize)]
 pub struct DeviceProps {
     #[prost(string, optional, tag = "1")]
     pub os: Option<String>,
@@ -183,6 +225,8 @@ pub struct DeviceProps {
     pub platform_type: Option<i32>,
     #[prost(bool, optional, tag = "4")]
     pub require_full_sync: Option<bool>,
+    #[prost(message, optional, tag = "5")]
+    pub history_sync_config: Option<HistorySyncConfig>,
 }
 
 // --- Message Protobufs ---
