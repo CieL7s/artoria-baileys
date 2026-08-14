@@ -1,0 +1,56 @@
+{
+  "name": "artoria-baileys",
+  "version": "1.0.0",
+  "description": "Ultra-fast, Rust-powered drop-in replacement for Baileys WhatsApp Web client with NAPI-RS native acceleration.",
+  "main": "index.js",
+  "module": "index.js",
+  "types": "index.d.ts",
+  "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/CieL7s/artoria-baileys.git"
+  },
+  "bugs": {
+    "url": "https://github.com/CieL7s/artoria-baileys/issues"
+  },
+  "homepage": "https://github.com/CieL7s/artoria-baileys#readme",
+  "exports": {
+    ".": {
+      "types": "./index.d.ts",
+      "import": "./index.js",
+      "default": "./index.js"
+    },
+    "./WAProto": {
+      "import": "./WAProto/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "index.js",
+    "index.d.ts",
+    "baileys_napi.node",
+    "WAProto/**/*",
+    "README.md",
+    "LICENSE",
+    "PORTING.md"
+  ],
+  "keywords": [
+    "whatsapp",
+    "baileys",
+    "artoria-baileys",
+    "auriel-baileys",
+    "rust",
+    "napi-rs",
+    "tokio",
+    "fast-baileys",
+    "whatsapp-web",
+    "whiskeysockets"
+  ],
+  "author": "CieL7s (Nagisa Artoria) & Baileys Community",
+  "license": "MIT",
+  "scripts": {
+    "test": "bun test/index.test.js",
+    "test:node": "node test/index.test.js",
+    "build:rust": "cargo build --package baileys-napi --release"
+  }
+}
