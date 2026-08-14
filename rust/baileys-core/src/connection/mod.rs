@@ -670,6 +670,8 @@ impl WsConnection {
                         let my_jid = creds_guard.me.as_ref().map(|m| m.id.clone()).unwrap_or_else(|| "628123456789@s.whatsapp.net".to_string());
                         drop(creds_guard);
 
+                        println!("[WS] Phone pairing exchange: pairing_code='{}', ref_len={}, primary_ident_len={}", pairing_code_str, ref_bytes.len(), primary_ident_bytes.len());
+
                         let key = crate::noise::crypto::derive_pairing_code_key(&pairing_code_str, salt);
                         if let Ok(primary_eph_pub) = crate::noise::crypto::aes_ctr_decrypt(&key, iv, ciphered_eph) {
                             if primary_eph_pub.len() == 32 {

@@ -11,6 +11,7 @@ use crate::protocol::{BinaryNode, ProtocolError};
 use rand::RngCore;
 
 pub struct WhatsAppClientCore {
+    pub creds: Arc<Mutex<crate::auth::AuthenticationCreds>>,
     pub auth: Arc<Mutex<FileAuthState>>,
     pub outgoing_tx: mpsc::UnboundedSender<BinaryNode>,
     pub outgoing_rx: Arc<Mutex<Option<mpsc::UnboundedReceiver<BinaryNode>>>>,
@@ -22,11 +23,14 @@ pub struct WhatsAppClientCore {
 
 impl WhatsAppClientCore {
     pub fn new(auth_folder: &str) -> Result<Self, AuthError> {
-        let auth = Arc::new(Mutex::new(FileAuthState::load_or_create(auth_folder)?));
+        let auth_state = FileAuthState::load_or_create(auth_folder)?;
+        let creds = Arc::new(Mutex::new(auth_state.creds.clone()));
+        let auth = Arc::new(Mutex::new(auth_state));
         let (outgoing_tx, outgoing_rx) = mpsc::unbounded_channel::<BinaryNode>();
         let (event_tx, event_rx) = mpsc::unbounded_channel::<BotEvent>();
 
         Ok(Self {
+            creds,
             auth,
             outgoing_tx,
             outgoing_rx: Arc::new(Mutex::new(Some(outgoing_rx))),
@@ -47,17 +51,17 @@ impl WhatsAppClientCore {
     }
 
     pub async fn get_user_id(&self) -> Option<String> {
-        let lock = self.auth.lock().await;
-        lock.creds.me.as_ref().map(|m| m.id.clone())
+        let lock = self.creds.lock().await;
+        lock.me.as_ref().map(|m| m.id.clone())
     }
 
     pub async fn get_auth_snapshot(&self) -> crate::auth::AuthenticationCreds {
-        let lock = self.auth.lock().await;
-        lock.creds.clone()
+        let lock = self.creds.lock().await;
+        lock.clone()
     }
 
     pub async fn start_connection_async(&self) {
-        let auth_clone = self.auth.clone();
+        let creds_clone = self.creds.clone();
         let event_tx_clone = self.event_tx.clone();
         let is_open_clone = self.is_open.clone();
         let print_qr = self.print_qr_terminal;
@@ -71,17 +75,12 @@ impl WhatsAppClientCore {
             }
         };
 
-        let creds = {
-            let lock = auth_clone.lock().await;
-            Arc::new(Mutex::new(lock.creds.clone()))
-        };
-
-        let conn = WsConnection::new(creds, event_tx_clone, is_open_clone, print_qr);
+        let conn = WsConnection::new(creds_clone, event_tx_clone, is_open_clone, print_qr);
         conn.start(rx).await;
     }
 
     pub fn start_connection(&self) {
-        let auth_clone = self.auth.clone();
+        let creds_clone = self.creds.clone();
         let event_tx_clone = self.event_tx.clone();
         let is_open_clone = self.is_open.clone();
         let print_qr = self.print_qr_terminal;
@@ -97,12 +96,7 @@ impl WhatsAppClientCore {
                 }
             };
 
-            let creds = {
-                let lock = auth_clone.lock().await;
-                Arc::new(Mutex::new(lock.creds.clone()))
-            };
-
-            let conn = WsConnection::new(creds, event_tx_clone, is_open_clone, print_qr);
+            let conn = WsConnection::new(creds_clone, event_tx_clone, is_open_clone, print_qr);
             conn.start(rx).await;
         });
     }
@@ -120,11 +114,11 @@ impl WhatsAppClientCore {
 
         let key = crate::noise::crypto::derive_pairing_code_key(&raw_code, &salt);
 
-        let mut auth_guard = self.auth.lock().await;
+        let mut creds_guard = self.creds.lock().await;
         let encrypted_ephemeral = aes_ctr_encrypt(
             &key,
             &random_iv,
-            &auth_guard.creds.pairing_ephemeral_key_pair.public,
+            &creds_guard.pairing_ephemeral_key_pair.public,
         )
         .map_err(|_| AuthError::KeyNotFound)?;
 
@@ -133,16 +127,20 @@ impl WhatsAppClientCore {
         wrapped_ephemeral.extend_from_slice(&random_iv);
         wrapped_ephemeral.extend_from_slice(&encrypted_ephemeral);
 
-        let noise_pub = auth_guard.creds.noise_key.public.clone();
-        auth_guard.creds.pairing_code = Some(raw_code.clone());
-        auth_guard.creds.me = Some(crate::auth::ContactInfo {
+        let noise_pub = creds_guard.noise_key.public.clone();
+        creds_guard.pairing_code = Some(raw_code.clone());
+        creds_guard.me = Some(crate::auth::ContactInfo {
             id: format!("{}@s.whatsapp.net", phone_number),
             name: Some("~".to_string()),
             notify: None,
             verified_name: None,
         });
+
+        let mut auth_guard = self.auth.lock().await;
+        auth_guard.creds = creds_guard.clone();
         let _ = auth_guard.save_creds();
         drop(auth_guard);
+        drop(creds_guard);
 
         let wrapped_node = BinaryNode::new("link_code_pairing_wrapped_companion_ephemeral_pub")
             .with_bytes_content(wrapped_ephemeral);
