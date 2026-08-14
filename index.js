@@ -319,9 +319,11 @@ export function makeWASocket(config = {}) {
   ev.flush = () => {};
 
   // Connect native events to JS EventEmitter
-  nativeClient.onEvent((eventJson) => {
+  nativeClient.onEvent((arg1, arg2) => {
+    const raw = typeof arg1 === 'string' ? arg1 : (typeof arg2 === 'string' ? arg2 : null);
+    if (!raw) return;
     try {
-      const evt = JSON.parse(eventJson);
+      const evt = JSON.parse(raw);
       if (evt.type && evt.data !== undefined) {
         if (evt.type === 'connection.update' && evt.data?.qr && printQR) {
           try {

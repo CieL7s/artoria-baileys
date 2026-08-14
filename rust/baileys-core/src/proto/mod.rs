@@ -119,7 +119,7 @@ pub struct WebInfo {
     pub ref_token: Option<String>,
     #[prost(string, optional, tag = "2")]
     pub version: Option<String>,
-    #[prost(int32, optional, tag = "3")]
+    #[prost(int32, optional, tag = "4")]
     pub web_sub_platform: Option<i32>,
 }
 
@@ -147,29 +147,29 @@ pub struct DevicePairingData {
 pub struct ClientPayload {
     #[prost(uint64, optional, tag = "1")]
     pub username: Option<u64>,
-    #[prost(bool, optional, tag = "2")]
+    #[prost(bool, optional, tag = "3")]
     pub passive: Option<bool>,
-    #[prost(message, optional, tag = "3")]
+    #[prost(message, optional, tag = "5")]
     pub user_agent: Option<UserAgent>,
-    #[prost(message, optional, tag = "4")]
+    #[prost(message, optional, tag = "6")]
     pub web_info: Option<WebInfo>,
-    #[prost(string, optional, tag = "5")]
+    #[prost(string, optional, tag = "7")]
     pub push_name: Option<String>,
-    #[prost(int32, optional, tag = "6")]
+    #[prost(sfixed32, optional, tag = "9")]
     pub session_id: Option<i32>,
-    #[prost(bool, optional, tag = "7")]
+    #[prost(bool, optional, tag = "10")]
     pub short_connect: Option<bool>,
-    #[prost(int32, optional, tag = "8")]
+    #[prost(int32, optional, tag = "12")]
     pub connect_type: Option<i32>,
-    #[prost(int32, optional, tag = "9")]
+    #[prost(int32, optional, tag = "13")]
     pub connect_reason: Option<i32>,
-    #[prost(int32, repeated, tag = "10")]
+    #[prost(int32, repeated, tag = "14")]
     pub shards: Vec<i32>,
-    #[prost(message, optional, tag = "12")]
-    pub device_pairing_data: Option<DevicePairingData>,
-    #[prost(uint32, optional, tag = "14")]
+    #[prost(uint32, optional, tag = "18")]
     pub device: Option<u32>,
-    #[prost(bool, optional, tag = "17")]
+    #[prost(message, optional, tag = "19")]
+    pub device_pairing_data: Option<DevicePairingData>,
+    #[prost(bool, optional, tag = "33")]
     pub pull: Option<bool>,
 }
 

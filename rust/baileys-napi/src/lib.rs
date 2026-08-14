@@ -1,5 +1,5 @@
 use napi::bindgen_prelude::*;
-use napi::threadsafe_function::{ThreadSafeCallContext, ThreadsafeFunction, ThreadsafeFunctionCallMode};
+use napi::threadsafe_function::{ErrorStrategy, ThreadSafeCallContext, ThreadsafeFunction, ThreadsafeFunctionCallMode};
 use napi::{Env, JsFunction};
 use napi_derive::napi;
 use serde::{Deserialize, Serialize};
@@ -455,22 +455,31 @@ impl WhatsAppClient {
     }
 
     #[napi]
-    pub fn on_event(&self, env: Env, callback: JsFunction) -> Result<()> {
-        let tsfn: ThreadsafeFunction<String> =
-            env.create_threadsafe_function(&callback, 0, |ctx: ThreadSafeCallContext<String>| {
-                let js_str = ctx.env.create_string(&ctx.value)?;
-                Ok(vec![js_str])
+    pub fn on_event(&self, #[napi(ts_arg_type = "(event: string) => void")] callback: JsFunction) -> Result<()> {
+        let tsfn: ThreadsafeFunction<String, ErrorStrategy::Fatal> =
+            callback.create_threadsafe_function(0, |ctx: ThreadSafeCallContext<String>| {
+                ctx.env.create_string(&ctx.value).map(|v| vec![v])
             })?;
 
         let event_rx_arc = self.client.event_rx.clone();
 
-        self.rt.spawn(async move {
-            let mut lock = event_rx_arc.lock().await;
-            while let Some(event) = lock.recv().await {
-                if let Ok(json_str) = serde_json::to_string(&event) {
-                    let _ = tsfn.call(Ok(json_str), ThreadsafeFunctionCallMode::NonBlocking);
+        std::thread::spawn(move || {
+            let rt = match tokio::runtime::Builder::new_current_thread().enable_all().build() {
+                Ok(r) => r,
+                Err(e) => {
+                    eprintln!("[Artoria-Baileys] Event runtime build error: {}", e);
+                    return;
                 }
-            }
+            };
+
+            rt.block_on(async move {
+                let mut lock = event_rx_arc.lock().await;
+                while let Some(event) = lock.recv().await {
+                    if let Ok(json_str) = serde_json::to_string(&event) {
+                        let _ = tsfn.call(json_str, ThreadsafeFunctionCallMode::NonBlocking);
+                    }
+                }
+            });
         });
 
         Ok(())
@@ -479,8 +488,18 @@ impl WhatsAppClient {
     #[napi]
     pub fn connect(&self) {
         let client = self.client.clone();
-        self.rt.spawn(async move {
-            client.start_connection_async().await;
+        std::thread::spawn(move || {
+            let rt = match tokio::runtime::Builder::new_multi_thread().enable_all().build() {
+                Ok(r) => r,
+                Err(e) => {
+                    eprintln!("[Artoria-Baileys] Connection runtime build error: {}", e);
+                    return;
+                }
+            };
+
+            rt.block_on(async move {
+                client.start_connection_async().await;
+            });
         });
     }
 

@@ -47,12 +47,13 @@ impl NoiseHandler {
             (pub_k.to_bytes(), priv_b)
         };
 
-        let mode_hash = sha256(NOISE_MODE);
+        let mut mode_raw = [0u8; 32];
+        mode_raw.copy_from_slice(NOISE_MODE);
         let mut handler = Self {
-            hash: mode_hash,
-            salt: mode_hash,
-            enc_key: mode_hash,
-            dec_key: mode_hash,
+            hash: mode_raw,
+            salt: mode_raw,
+            enc_key: mode_raw,
+            dec_key: mode_raw,
             counter: 0,
             ephemeral_priv,
             ephemeral_pub,
@@ -157,11 +158,11 @@ impl NoiseHandler {
                 passive: Some(true),
                 pull: Some(true),
                 user_agent: Some(UserAgent {
-                    platform: Some(0), // WEB
+                    platform: Some(14), // WEB = 14
                     app_version: Some(AppVersion {
                         primary: Some(2),
                         secondary: Some(3000),
-                        tertiary: Some(1015901307),
+                        tertiary: Some(1043857760),
                         quaternary: None,
                     }),
                     os_version: Some("0.1".to_string()),
@@ -210,11 +211,11 @@ impl NoiseHandler {
                 passive: Some(false),
                 pull: Some(false),
                 user_agent: Some(UserAgent {
-                    platform: Some(0),
+                    platform: Some(14), // WEB = 14
                     app_version: Some(AppVersion {
                         primary: Some(2),
                         secondary: Some(3000),
-                        tertiary: Some(1015901307),
+                        tertiary: Some(1043857760),
                         quaternary: None,
                     }),
                     os_version: Some("0.1".to_string()),
@@ -235,7 +236,7 @@ impl NoiseHandler {
                     build_hash: {
                         use md5::{Digest, Md5};
                         let mut h = Md5::new();
-                        h.update(b"2.3000.1015901307");
+                        h.update(b"2.3000.1043857760");
                         Some(h.finalize().to_vec())
                     },
                     device_props: Some(device_props_bytes),
@@ -476,41 +477,62 @@ impl WsConnection {
         while let Some(msg_res) = ws_read.next().await {
             match msg_res {
                 Ok(WsMessage::Binary(data)) => {
+                    println!("[WS] Received {} bytes from WhatsApp WebSocket", data.len());
                     frame_buffer.push_data(&data);
 
                     while let Some(raw_frame) = frame_buffer.pop_frame() {
+                        println!("[WS] Popped frame: {} bytes (transport={})", raw_frame.len(), noise_handler.lock().await.transport.is_some());
                         let mut lock = noise_handler.lock().await;
 
                         if lock.transport.is_some() {
                             // Decrypt transport frame
-                            if let Ok(decrypted) = lock.decrypt(&raw_frame) {
-                                if let Ok(node) = decode_binary_node(&decrypted) {
-                                    Self::handle_incoming_node(
-                                        &node,
-                                        &self.event_tx,
-                                        &self.creds,
-                                        &send_raw_tx,
-                                        &self.is_open,
-                                        self.print_qr_terminal,
-                                    )
-                                    .await;
+                            match lock.decrypt(&raw_frame) {
+                                Ok(decrypted) => {
+                                    println!("[WS] Successfully decrypted transport frame: {} bytes", decrypted.len());
+                                    match decode_binary_node(&decrypted) {
+                                        Ok(node) => {
+                                            println!("[WS] Decoded BinaryNode: tag={}", node.tag);
+                                            Self::handle_incoming_node(
+                                                &node,
+                                                &self.event_tx,
+                                                &self.creds,
+                                                &noise_handler,
+                                                &send_raw_tx,
+                                                &self.is_open,
+                                                self.print_qr_terminal,
+                                            )
+                                            .await;
+                                        }
+                                        Err(e) => {
+                                            println!("[WS] Failed to decode BinaryNode: {:?}", e);
+                                        }
+                                    }
+                                }
+                                Err(e) => {
+                                    println!("[WS] Failed to decrypt transport frame: {:?}", e);
                                 }
                             }
                         } else {
                             // Process Handshake Response (ServerHello)
-                            if let Ok(hs) = HandshakeMessage::decode(&raw_frame[..]) {
-                                let creds_lock = self.creds.lock().await;
-                                match lock.process_server_hello(&hs, &creds_lock) {
-                                    Ok(client_finish) => {
-                                        info!("ServerHello verified! Sending ClientFinish...");
-                                        let mut finish_bytes = Vec::new();
-                                        let _ = client_finish.encode(&mut finish_bytes);
-                                        let finish_frame = encode_frame(&finish_bytes, None);
-                                        let _ = send_raw_tx.send(finish_frame);
+                            match HandshakeMessage::decode(&raw_frame[..]) {
+                                Ok(hs) => {
+                                    println!("[WS] Decoded HandshakeMessage (has server_hello={})", hs.server_hello.is_some());
+                                    let creds_lock = self.creds.lock().await;
+                                    match lock.process_server_hello(&hs, &creds_lock) {
+                                        Ok(client_finish) => {
+                                            println!("[WS] ServerHello verified! Sending ClientFinish...");
+                                            let mut finish_bytes = Vec::new();
+                                            let _ = client_finish.encode(&mut finish_bytes);
+                                            let finish_frame = encode_frame(&finish_bytes, None);
+                                            let _ = send_raw_tx.send(finish_frame);
+                                        }
+                                        Err(e) => {
+                                            println!("[WS] process_server_hello error: {:?}", e);
+                                        }
                                     }
-                                    Err(e) => {
-                                        error!("Noise Handshake ServerHello processing failed: {:?}", e);
-                                    }
+                                }
+                                Err(e) => {
+                                    println!("[WS] Failed to decode HandshakeMessage protobuf: {:?}", e);
                                 }
                             }
                         }
@@ -554,10 +576,25 @@ impl WsConnection {
         }
     }
 
+    async fn send_encrypted_node(
+        node: &BinaryNode,
+        noise_handler: &Arc<Mutex<NoiseHandler>>,
+        send_raw_tx: &mpsc::UnboundedSender<Vec<u8>>,
+    ) {
+        if let Ok(encoded) = encode_binary_node(node) {
+            let mut lock = noise_handler.lock().await;
+            if let Ok(encrypted) = lock.encrypt(&encoded) {
+                let frame = encode_frame(&encrypted, None);
+                let _ = send_raw_tx.send(frame);
+            }
+        }
+    }
+
     async fn handle_incoming_node(
         node: &BinaryNode,
         event_tx: &mpsc::UnboundedSender<BotEvent>,
         creds: &Arc<Mutex<AuthenticationCreds>>,
+        noise_handler: &Arc<Mutex<NoiseHandler>>,
         send_tx: &mpsc::UnboundedSender<Vec<u8>>,
         is_open: &Arc<AtomicBool>,
         print_qr_terminal: bool,
@@ -570,10 +607,7 @@ impl WsConnection {
                     .with_attr("id", msg_id)
                     .with_attr("class", "message")
                     .with_attr("to", from_jid);
-                if let Ok(encoded) = encode_binary_node(&ack_node) {
-                    let frame = encode_frame(&encoded, None);
-                    let _ = send_tx.send(frame);
-                }
+                Self::send_encrypted_node(&ack_node, noise_handler, send_tx).await;
             }
 
             if let Some(msg_info) = MessageParser::parse_incoming_message(node) {
@@ -589,10 +623,7 @@ impl WsConnection {
                     .with_attr("to", "s.whatsapp.net")
                     .with_attr("type", "result")
                     .with_attr("id", msg_id);
-                if let Ok(encoded) = encode_binary_node(&ack_iq) {
-                    let frame = encode_frame(&encoded, None);
-                    let _ = send_tx.send(frame);
-                }
+                Self::send_encrypted_node(&ack_iq, noise_handler, send_tx).await;
             }
 
             // Handle QR Pair-Device Node
@@ -743,10 +774,7 @@ impl WsConnection {
                                                 .with_attr("xmlns", "md")
                                                 .with_children(vec![resp_comp_reg]);
 
-                                            if let Ok(encoded) = encode_binary_node(&resp_iq) {
-                                                let frame = encode_frame(&encoded, None);
-                                                let _ = send_tx.send(frame);
-                                            }
+                                            Self::send_encrypted_node(&resp_iq, noise_handler, send_tx).await;
 
                                             let _ = event_tx.send(BotEvent::CredsUpdate(creds_clone));
                                         }
