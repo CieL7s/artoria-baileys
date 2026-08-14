@@ -53,6 +53,7 @@
     "build:rust": "cargo build --package baileys-napi --release"
   },
   "dependencies": {
-    "protobufjs": "^7.4.0"
+    "protobufjs": "^7.4.0",
+    "qrcode-terminal": "^0.12.0"
   }
 }

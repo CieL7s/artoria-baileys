@@ -7,6 +7,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 import fs from 'fs';
 import crypto from 'crypto';
+import qrcode from 'qrcode-terminal';
 
 const require = createRequire(import.meta.url);
 
@@ -566,11 +567,10 @@ export function makeWASocket(config = {}) {
   });
 
   if (config.printQRInTerminal) {
-    ev.on('connection.update', async (update) => {
+    ev.on('connection.update', (update) => {
       if (update.qr) {
         try {
-          const qrcode = await import('qrcode-terminal');
-          (qrcode.default?.generate || qrcode.generate)?.(update.qr, { small: true });
+          (qrcode.generate || qrcode.default?.generate || qrcode)(update.qr, { small: true });
         } catch {
           console.log('\n--- SCAN THIS WHATSAPP QR CODE ---\n' + update.qr + '\n----------------------------------\n');
         }
