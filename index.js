@@ -5,9 +5,43 @@ import { fileURLToPath } from 'url';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+import fs from 'fs';
+
 const require = createRequire(import.meta.url);
 
-const native = require(path.resolve(__dirname, 'baileys_napi.node'));
+function loadNativeBinding() {
+  const platform = process.platform;
+  const arch = process.arch;
+
+  const candidatePaths = [
+    path.resolve(__dirname, 'baileys_napi.node'),
+    path.resolve(__dirname, `baileys_napi.${platform}-${arch}.node`),
+    path.resolve(__dirname, 'dist-binaries', `baileys_napi.${platform}-${arch}.node`),
+    path.resolve(__dirname, 'binaries', `baileys_napi.${platform}-${arch}.node`),
+  ];
+
+  for (const candidate of candidatePaths) {
+    if (fs.existsSync(candidate)) {
+      try {
+        return require(candidate);
+      } catch (e) {
+        // Continue trying next candidate
+      }
+    }
+  }
+
+  // Final fallback attempt
+  try {
+    return require(path.resolve(__dirname, 'baileys_napi.node'));
+  } catch (err) {
+    throw new Error(
+      `[Artoria-Baileys] Gagal memuat native binary untuk platform "${platform}-${arch}". ` +
+      `Pastikan Anda telah mengompilasi addon via "cargo build --package baileys-napi --release" atau mengunduh prebuilt binary.`
+    );
+  }
+}
+
+const native = loadNativeBinding();
 import { proto } from './WAProto/index.js';
 
 export { proto };
