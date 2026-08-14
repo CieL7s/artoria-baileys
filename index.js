@@ -570,7 +570,12 @@ export function makeWASocket(config = {}) {
     ev.on('connection.update', (update) => {
       if (update.qr) {
         try {
-          (qrcode.generate || qrcode.default?.generate || qrcode)(update.qr, { small: true });
+          const gen = qrcode?.generate || qrcode?.default?.generate;
+          if (typeof gen === 'function') {
+            gen(update.qr, { small: true });
+          } else {
+            console.log('\n--- SCAN THIS WHATSAPP QR CODE ---\n' + update.qr + '\n----------------------------------\n');
+          }
         } catch {
           console.log('\n--- SCAN THIS WHATSAPP QR CODE ---\n' + update.qr + '\n----------------------------------\n');
         }
