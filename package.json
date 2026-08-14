@@ -52,5 +52,8 @@
     "test": "bun test/index.test.js",
     "test:node": "node test/index.test.js",
     "build:rust": "cargo build --package baileys-napi --release"
+  },
+  "dependencies": {
+    "protobufjs": "^7.4.0"
   }
 }

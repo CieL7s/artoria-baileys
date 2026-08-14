@@ -15,7 +15,7 @@ impl CommunityBuilder {
         let mut create_attrs = HashMap::new();
         create_attrs.insert("subject".to_string(), subject.to_string());
 
-        let mut sub_nodes = vec![
+        let sub_nodes = vec![
             BinaryNode {
                 tag: "description".to_string(),
                 attrs: HashMap::new(),
