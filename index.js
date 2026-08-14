@@ -380,6 +380,30 @@ function generateMessageId() {
   return id;
 }
 
+const CROCKFORD_CHARACTERS = '123456789ABCDEFGHJKLMNPQRSTVWXYZ';
+
+export function bytesToCrockford(buffer) {
+  let value = 0;
+  let bitCount = 0;
+  const crockford = [];
+
+  for (const element of buffer) {
+    value = (value << 8) | (element & 0xff);
+    bitCount += 8;
+
+    while (bitCount >= 5) {
+      crockford.push(CROCKFORD_CHARACTERS.charAt((value >>> (bitCount - 5)) & 31));
+      bitCount -= 5;
+    }
+  }
+
+  if (bitCount > 0) {
+    crockford.push(CROCKFORD_CHARACTERS.charAt((value << (5 - bitCount)) & 31));
+  }
+
+  return crockford.join('');
+}
+
 /**
  * Creates a high-level Auriel-Baileys WhatsApp Web Client instance.
  * Optimized with pure Rust core for ultra-fast cryptography & zero-copy WABinary parsing.
@@ -442,8 +466,18 @@ export function makeWASocket(config = {}) {
       name: 'Auriel Artoria Bot'
     },
 
-    async requestPairingCode(phoneNumber) {
-      return '1234-5678';
+    async requestPairingCode(phoneNumber, customPairingCode) {
+      const sanitizedNumber = (phoneNumber || '').replace(/[^0-9]/g, '');
+      const pairingCode = customPairingCode || bytesToCrockford(crypto.randomBytes(5));
+      if (authState?.creds) {
+        authState.creds.pairingCode = pairingCode;
+        authState.creds.me = {
+          id: jidEncode(sanitizedNumber, 's.whatsapp.net'),
+          name: '~'
+        };
+        ev.emit('creds.update', authState.creds);
+      }
+      return pairingCode;
     },
 
     updateMediaMessage: async (msg) => msg,
