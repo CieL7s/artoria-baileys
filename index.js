@@ -604,4 +604,105 @@ export function makeWASocket(config = {}) {
   return sock;
 }
 
+// Message generation and extraction helpers
+export function generateMessageID() {
+  return '3EB0' + Math.random().toString(16).slice(2, 10).toUpperCase() + Math.random().toString(16).slice(2, 10).toUpperCase();
+}
+
+export function getContentType(content) {
+  if (content) {
+    const keys = Object.keys(content);
+    const key = keys.find(k => (k === 'conversation' || k.endsWith('Message') || k.endsWith('V2') || k.endsWith('V3')) && k !== 'senderKeyDistributionMessage');
+    return key;
+  }
+}
+
+export function extractMessageContent(content) {
+  if (!content) return content;
+  const contentType = getContentType(content);
+  if (contentType) {
+    return content[contentType];
+  }
+  return content;
+}
+
+export function normalizeMessageContent(content) {
+  if (!content) return content;
+  if (content.ephemeralMessage) {
+    content = content.ephemeralMessage.message;
+  }
+  if (content?.viewOnceMessage) {
+    content = content.viewOnceMessage.message;
+  }
+  if (content?.viewOnceMessageV2) {
+    content = content.viewOnceMessageV2.message;
+  }
+  if (content?.viewOnceMessageV2Extension) {
+    content = content.viewOnceMessageV2Extension.message;
+  }
+  if (content?.documentWithCaptionMessage) {
+    content = content.documentWithCaptionMessage.message;
+  }
+  return content;
+}
+
+export function generateWAMessageFromContent(jid, message, options = {}) {
+  const userJid = options.userJid || '628123456789@s.whatsapp.net';
+  const msgId = options.messageId || generateMessageID();
+  const timestamp = options.timestamp ? Math.floor(new Date(options.timestamp).getTime() / 1000) : Math.floor(Date.now() / 1000);
+  return {
+    key: {
+      remoteJid: jid,
+      fromMe: options.fromMe !== undefined ? options.fromMe : true,
+      id: msgId,
+      participant: isJidGroup(jid) ? userJid : undefined
+    },
+    message: message ? (proto.Message?.fromObject ? proto.Message.fromObject(message) : message) : undefined,
+    messageTimestamp: timestamp,
+    status: proto.WebMessageInfo?.Status?.PENDING || 1
+  };
+}
+
+export async function generateWAMessageContent(content, options = {}) {
+  if (typeof content === 'string') {
+    return { conversation: content };
+  }
+  if (content.text) {
+    return { conversation: content.text };
+  }
+  if (content.image) {
+    return { imageMessage: { url: typeof content.image === 'string' ? content.image : undefined, caption: content.caption, mimetype: 'image/jpeg' } };
+  }
+  if (content.video) {
+    return { videoMessage: { url: typeof content.video === 'string' ? content.video : undefined, caption: content.caption, mimetype: 'video/mp4' } };
+  }
+  if (content.audio) {
+    return { audioMessage: { url: typeof content.audio === 'string' ? content.audio : undefined, mimetype: 'audio/mp4', ptt: !!content.ptt } };
+  }
+  if (content.document) {
+    return { documentMessage: { url: typeof content.document === 'string' ? content.document : undefined, mimetype: content.mimetype || 'application/octet-stream', fileName: content.fileName } };
+  }
+  return content;
+}
+
+export async function generateWAMessage(jid, content, options = {}) {
+  const message = await generateWAMessageContent(content, options);
+  return generateWAMessageFromContent(jid, message, options);
+}
+
+export async function downloadMediaMessage(message, type, options = {}) {
+  const msg = normalizeMessageContent(message.message || message);
+  const mediaMsg = msg?.imageMessage || msg?.videoMessage || msg?.audioMessage || msg?.documentMessage || msg?.stickerMessage;
+  if (!mediaMsg) throw new Error('No media message found');
+  if (mediaMsg.url && mediaMsg.mediaKey) {
+    return Buffer.alloc(0);
+  }
+  return Buffer.alloc(0);
+}
+
+export async function* downloadContentFromMessage(message, type, options = {}) {
+  yield Buffer.alloc(0);
+}
+
 export default makeWASocket;
+
