@@ -801,18 +801,8 @@ impl WsConnection {
                 }
             }
 
-            // Acknowledge IQ set or ping get stanza
             if let Some(iq_type) = node.get_attr("type") {
-                if iq_type == "set" || iq_type == "get" {
-                    let from_jid = node.get_attr("from").unwrap_or("@s.whatsapp.net");
-                    let mut ack_iq = BinaryNode::new("iq")
-                        .with_attr("to", from_jid)
-                        .with_attr("type", "result");
-                    if let Some(msg_id) = node.get_attr("id") {
-                        ack_iq = ack_iq.with_attr("id", msg_id);
-                    }
-                    Self::send_encrypted_node(&ack_iq, noise_handler, send_tx).await;
-                } else if iq_type == "error" {
+                if iq_type == "error" {
                     if let Some(err_node) = node.get_child("error") {
                         let text = err_node.get_attr("text").unwrap_or("unknown");
                         let code = err_node.get_attr("code").unwrap_or("unknown");
@@ -821,11 +811,30 @@ impl WsConnection {
                             println!("[⚠️ Pairing Rate Limit] Nomor ini sedang terkena rate-overlimit (429) dari server WhatsApp karena terlalu sering request kode. Silakan tunggu 5-10 menit atau gunakan opsi [1] Scan QR Code!\n");
                         }
                     }
+                } else if iq_type == "get" && node.get_child("ping").is_some() {
+                    let from_jid = node.get_attr("from").unwrap_or("@s.whatsapp.net");
+                    let mut ack_iq = BinaryNode::new("iq")
+                        .with_attr("to", from_jid)
+                        .with_attr("type", "result");
+                    if let Some(msg_id) = node.get_attr("id") {
+                        ack_iq = ack_iq.with_attr("id", msg_id);
+                    }
+                    Self::send_encrypted_node(&ack_iq, noise_handler, send_tx).await;
                 }
             }
 
             // Handle QR Pair-Device Node
             if let Some(pair_device) = node.get_child("pair-device") {
+                // Acknowledge pair-device IQ
+                if let Some(msg_id) = node.get_attr("id") {
+                    let from_jid = node.get_attr("from").unwrap_or("@s.whatsapp.net");
+                    let ack_iq = BinaryNode::new("iq")
+                        .with_attr("to", from_jid)
+                        .with_attr("type", "result")
+                        .with_attr("id", msg_id);
+                    Self::send_encrypted_node(&ack_iq, noise_handler, send_tx).await;
+                }
+
                 if let Some(ref_data) = pair_device.get_child_string("ref") {
                     let creds_guard = creds.lock().await;
                     let noise_pub_b64 = base64::engine::general_purpose::STANDARD.encode(&creds_guard.noise_key.public);
