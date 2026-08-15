@@ -169,7 +169,7 @@ impl NoiseHandler {
                     app_version: Some(AppVersion {
                         primary: Some(2),
                         secondary: Some(3000),
-                        tertiary: Some(1015901307),
+                        tertiary: Some(1043857760),
                         quaternary: None,
                     }),
                     os_version: Some("0.1".to_string()),

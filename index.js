@@ -12,11 +12,11 @@ const require = createRequire(import.meta.url);
 // Load native pure-Rust compiled NAPI module
 let native = null;
 const possiblePaths = [
-  './baileys_napi.node',
-  './baileys-napi.win32-x64-msvc.node',
-  path.join(__dirname, 'baileys_napi.node'),
   path.join(__dirname, 'rust/target/release/baileys_napi.dll'),
-  path.join(__dirname, 'rust/target/release/baileys_napi.node')
+  path.join(__dirname, 'baileys-napi.win32-x64-msvc.node'),
+  path.join(__dirname, 'baileys_napi.node'),
+  './baileys-napi.win32-x64-msvc.node',
+  './baileys_napi.node'
 ];
 
 for (const p of possiblePaths) {
@@ -129,7 +129,7 @@ export const areJidsSameUser = (jid1, jid2) => {
 
 export async function fetchLatestBaileysVersion() {
   return {
-    version: [2, 3000, 1015901307],
+    version: [2, 3000, 1043857760],
     isLatest: true
   };
 }
