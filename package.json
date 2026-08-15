@@ -1,7 +1,7 @@
 {
   "name": "artoria-baileys",
-  "version": "2.0.0",
-  "description": "Ultra-fast, 100% Pure Rust WhatsApp Web client engine packaged as native Node.js NAPI addon — 0-compromise drop-in replacement for Baileys.",
+  "version": "0.3.0",
+  "description": "High-performance WhatsApp Web library powered by Rust native engine (Level 0 & 1 fully migrated) — seamless drop-in companion for Baileys ecosystem.",
   "main": "index.js",
   "module": "index.js",
   "types": "index.d.ts",

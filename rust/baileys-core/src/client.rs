@@ -55,6 +55,11 @@ impl WhatsAppClientCore {
         lock.me.as_ref().map(|m| m.id.clone())
     }
 
+    pub async fn get_user_lid(&self) -> Option<String> {
+        let lock = self.creds.lock().await;
+        lock.me.as_ref().and_then(|m| m.lid.clone())
+    }
+
     pub async fn get_auth_snapshot(&self) -> crate::auth::AuthenticationCreds {
         let lock = self.creds.lock().await;
         lock.clone()

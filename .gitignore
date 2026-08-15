@@ -9,20 +9,31 @@ rust/target/
 rust/target_test/
 **/*.rs.bk
 
-# Native binary build caches
+# Native binary build caches & debug symbols
 *.pdb
 *.exp
 *.lib
 
-# Temporary test sessions & logs
-test_sessions/
+# Authentication credentials, sessions & database
 auth_info_baileys/
+auth_test*/
+test_auth*/
+temp_qr*/
+test_sessions/
+*.session/
+database.json
+*.local.md
+.env*
+
+# Logs & temporary run data
 *.log
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+test/shadow_stats.json
 
-# Internal documents
+# Internal test vectors & scratch dumps (contain real traffic snapshots)
+scratch/
+test/vectors/
 PRD-Baileys-Rust-Port.md
 PORTING.md
-scratch/

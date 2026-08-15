@@ -633,13 +633,26 @@ impl WsConnection {
         auth_folder: Option<&std::path::PathBuf>,
     ) {
         if node.tag == "message" {
-            // Auto send Ack
+            // Auto send Ack matching WhatsApp Web specification
             if let Some(msg_id) = node.get_attr("id") {
                 let from_jid = node.get_attr("from").unwrap_or("@s.whatsapp.net");
-                let ack_node = BinaryNode::new("ack")
+                let me_id = creds.lock().await.me.as_ref().map(|m| m.id.clone());
+                let mut ack_node = BinaryNode::new("ack")
                     .with_attr("id", msg_id)
                     .with_attr("class", "message")
                     .with_attr("to", from_jid);
+                if let Some(ref me) = me_id {
+                    ack_node = ack_node.with_attr("from", me);
+                }
+                if let Some(part) = node.get_attr("participant") {
+                    ack_node = ack_node.with_attr("participant", part);
+                }
+                if let Some(recip) = node.get_attr("recipient") {
+                    ack_node = ack_node.with_attr("recipient", recip);
+                }
+                if let Some(t) = node.get_attr("type") {
+                    ack_node = ack_node.with_attr("type", t);
+                }
                 Self::send_encrypted_node(&ack_node, noise_handler, send_tx).await;
             }
 
@@ -651,16 +664,41 @@ impl WsConnection {
                     r#type: "notify".to_string(),
                 });
             }
+        } else if node.tag == "receipt" {
+            // Auto-acknowledge receipts
+            if let Some(msg_id) = node.get_attr("id") {
+                let from_jid = node.get_attr("from").unwrap_or("@s.whatsapp.net");
+                let mut ack_node = BinaryNode::new("ack")
+                    .with_attr("id", msg_id)
+                    .with_attr("class", "receipt")
+                    .with_attr("to", from_jid);
+                if let Some(part) = node.get_attr("participant") {
+                    ack_node = ack_node.with_attr("participant", part);
+                }
+                if let Some(recip) = node.get_attr("recipient") {
+                    ack_node = ack_node.with_attr("recipient", recip);
+                }
+                if let Some(t) = node.get_attr("type") {
+                    ack_node = ack_node.with_attr("type", t);
+                }
+                Self::send_encrypted_node(&ack_node, noise_handler, send_tx).await;
+            }
         } else if node.tag == "notification" {
             // Auto-acknowledge notifications
             if let Some(msg_id) = node.get_attr("id") {
                 let from_jid = node.get_attr("from").unwrap_or("@s.whatsapp.net");
                 let notif_type = node.get_attr("type").unwrap_or("");
-                let ack_node = BinaryNode::new("ack")
+                let mut ack_node = BinaryNode::new("ack")
                     .with_attr("id", msg_id)
                     .with_attr("class", "notification")
                     .with_attr("type", notif_type)
                     .with_attr("to", from_jid);
+                if let Some(part) = node.get_attr("participant") {
+                    ack_node = ack_node.with_attr("participant", part);
+                }
+                if let Some(recip) = node.get_attr("recipient") {
+                    ack_node = ack_node.with_attr("recipient", recip);
+                }
                 Self::send_encrypted_node(&ack_node, noise_handler, send_tx).await;
             }
 
@@ -984,8 +1022,15 @@ impl WsConnection {
                 }
             }
 
-            // 1. Upload 30 PreKeys to WhatsApp server
-            Self::upload_prekeys(auth_folder, creds, noise_handler, send_tx).await;
+            // 1. Upload 30 PreKeys ONLY IF required (initial pairing)
+            let need_upload = {
+                let creds_guard = creds.lock().await;
+                creds_guard.first_unuploaded_pre_key_id <= 1
+            };
+            if need_upload {
+                println!("[WS PreKeys] Initial prekeys upload to WhatsApp Server...");
+                Self::upload_prekeys(auth_folder, creds, noise_handler, send_tx).await;
+            }
 
             // 2. Send passive active IQ matching Baileys socket.ts
             let active_node = BinaryNode::new("iq")
@@ -1017,6 +1062,15 @@ impl WsConnection {
                 last_disconnect: None,
             });
         } else if node.tag == "ib" {
+            if let Some(_offline_preview) = node.get_child("offline_preview") {
+                let batch_node = BinaryNode::new("ib")
+                    .with_children(vec![
+                        BinaryNode::new("offline_batch").with_attr("count", "100")
+                    ]);
+                println!("[WS Offline] Responding to offline_preview with offline_batch count=100");
+                Self::send_encrypted_node(&batch_node, noise_handler, send_tx).await;
+            }
+
             if let Some(dirty_node) = node.get_child("dirty") {
                 let dirty_type = dirty_node.get_attr("type").unwrap_or("account_sync");
                 let timestamp = dirty_node.get_attr("timestamp");
@@ -1052,35 +1106,41 @@ impl WsConnection {
         let signed_ident_pub = creds_guard.signed_identity_key.public.clone();
         let signed_skey = creds_guard.signed_pre_key.clone();
 
+        let start_id = creds_guard.first_unuploaded_pre_key_id.max(1);
+        let count = 30u32;
+        let end_id = start_id + count;
+
         let mut prekeys_to_upload = Vec::new();
 
-        // Generate 30 prekeys
-        for id in 1..=30u32 {
+        // Generate prekeys starting from start_id
+        for id in start_id..end_id {
             let keypair = crate::auth::KeyPair::generate();
 
             if let Some(ref folder) = folder_opt {
                 let prekey_path = folder.join(format!("pre-key-{}.json", id));
-                let priv_b64 = base64::engine::general_purpose::STANDARD.encode(&keypair.private);
-                let pub_b64 = base64::engine::general_purpose::STANDARD.encode(&keypair.public);
+                if !prekey_path.exists() {
+                    let priv_b64 = base64::engine::general_purpose::STANDARD.encode(&keypair.private);
+                    let pub_b64 = base64::engine::general_purpose::STANDARD.encode(&keypair.public);
 
-                let json_content = serde_json::json!({
-                    "private": {
-                        "type": "Buffer",
-                        "data": priv_b64
-                    },
-                    "public": {
-                        "type": "Buffer",
-                        "data": pub_b64
-                    }
-                });
-                let _ = std::fs::write(&prekey_path, serde_json::to_string_pretty(&json_content).unwrap_or_default());
+                    let json_content = serde_json::json!({
+                        "private": {
+                            "type": "Buffer",
+                            "data": priv_b64
+                        },
+                        "public": {
+                            "type": "Buffer",
+                            "data": pub_b64
+                        }
+                    });
+                    let _ = std::fs::write(&prekey_path, serde_json::to_string_pretty(&json_content).unwrap_or_default());
+                }
             }
 
             prekeys_to_upload.push((id, keypair.public));
         }
 
-        creds_guard.next_pre_key_id = 31;
-        creds_guard.first_unuploaded_pre_key_id = 31;
+        creds_guard.next_pre_key_id = end_id;
+        creds_guard.first_unuploaded_pre_key_id = end_id;
 
         let creds_clone = creds_guard.clone();
         drop(creds_guard);

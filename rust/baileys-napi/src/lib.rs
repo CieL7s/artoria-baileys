@@ -1,6 +1,6 @@
 use napi::bindgen_prelude::*;
 use napi::threadsafe_function::{ErrorStrategy, ThreadSafeCallContext, ThreadsafeFunction, ThreadsafeFunctionCallMode};
-use napi::{Env, JsFunction};
+use napi::JsFunction;
 use napi_derive::napi;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -374,6 +374,61 @@ pub fn decrypt_media(
 }
 
 #[napi]
+pub fn curve25519_sign(private_key: Buffer, message: Buffer) -> Result<Buffer> {
+    if private_key.len() < 32 {
+        return Err(napi::Error::from_reason("private_key must be at least 32 bytes"));
+    }
+    let mut priv_arr = [0u8; 32];
+    priv_arr.copy_from_slice(&private_key[..32]);
+    let sig = baileys_core::noise::crypto::curve25519_sign(&priv_arr, message.as_ref());
+    Ok(Buffer::from(sig.to_vec()))
+}
+
+#[napi]
+pub fn curve25519_verify(public_key: Buffer, message: Buffer, signature: Buffer) -> Result<bool> {
+    if signature.len() != 64 {
+        return Ok(false);
+    }
+    let pk_slice = public_key.as_ref();
+    let pk_32 = if pk_slice.len() == 33 && pk_slice[0] == 0x05 {
+        &pk_slice[1..]
+    } else if pk_slice.len() == 32 {
+        pk_slice
+    } else {
+        return Ok(false);
+    };
+    let mut pub_arr = [0u8; 32];
+    pub_arr.copy_from_slice(pk_32);
+    let mut sig_arr = [0u8; 64];
+    sig_arr.copy_from_slice(signature.as_ref());
+    Ok(baileys_core::noise::crypto::curve25519_verify(&pub_arr, message.as_ref(), &sig_arr))
+}
+
+#[napi]
+pub fn aes_gcm_encrypt(key: Buffer, iv: Buffer, aad: Buffer, plaintext: Buffer) -> Result<Buffer> {
+    if iv.len() != 12 {
+        return Err(napi::Error::from_reason("IV must be 12 bytes"));
+    }
+    let mut iv_arr = [0u8; 12];
+    iv_arr.copy_from_slice(iv.as_ref());
+    let ciphertext = baileys_core::noise::crypto::aes_gcm_encrypt(key.as_ref(), &iv_arr, aad.as_ref(), plaintext.as_ref())
+        .map_err(|e| napi::Error::from_reason(e.to_string()))?;
+    Ok(Buffer::from(ciphertext))
+}
+
+#[napi]
+pub fn aes_gcm_decrypt(key: Buffer, iv: Buffer, aad: Buffer, ciphertext: Buffer) -> Result<Buffer> {
+    if iv.len() != 12 {
+        return Err(napi::Error::from_reason("IV must be 12 bytes"));
+    }
+    let mut iv_arr = [0u8; 12];
+    iv_arr.copy_from_slice(iv.as_ref());
+    let plaintext = baileys_core::noise::crypto::aes_gcm_decrypt(key.as_ref(), &iv_arr, aad.as_ref(), ciphertext.as_ref())
+        .map_err(|e| napi::Error::from_reason(e.to_string()))?;
+    Ok(Buffer::from(plaintext))
+}
+
+#[napi]
 pub struct NoiseTransport {
     state: TransportState,
 }
@@ -530,6 +585,12 @@ impl WhatsAppClient {
     }
 
     #[napi]
+    pub fn get_user_lid(&self) -> Result<Option<String>> {
+        let client = self.client.clone();
+        Ok(self.rt.block_on(async move { client.get_user_lid().await }))
+    }
+
+    #[napi]
     pub fn send_message(&self, to_jid: String, text: String) -> Result<String> {
         let client = self.client.clone();
         self.rt
@@ -549,8 +610,185 @@ impl WhatsAppClient {
     }
 }
 
+#[napi(object)]
+pub struct NapiSenderMessageKey {
+    pub iteration: u32,
+    pub iv: Buffer,
+    pub cipher_key: Buffer,
+    pub seed: Buffer,
+}
+
+#[napi(object)]
+pub struct NapiSenderChainKey {
+    pub iteration: u32,
+    pub seed: Buffer,
+}
+
+#[napi(object)]
+pub struct NapiSenderKeyName {
+    pub group_id: String,
+    pub sender: String,
+    pub device_id: u32,
+}
+
+#[napi(object)]
+pub struct NapiSenderKeyMessage {
+    pub message_version: u32,
+    pub key_id: u32,
+    pub iteration: u32,
+    pub ciphertext: Buffer,
+    pub signature: Buffer,
+    pub serialized: Buffer,
+}
+
+#[napi(object)]
+pub struct NapiSenderKeyDistributionMessage {
+    pub id: u32,
+    pub iteration: u32,
+    pub chain_key: Buffer,
+    pub signature_key: Buffer,
+    pub serialized: Buffer,
+}
+
+#[napi]
+pub fn signal_group_derive_message_key(iteration: u32, seed: Buffer) -> Result<NapiSenderMessageKey> {
+    let msg_key = baileys_core::signal::SenderMessageKey::new(iteration, seed.as_ref());
+    Ok(NapiSenderMessageKey {
+        iteration: msg_key.iteration(),
+        iv: Buffer::from(msg_key.iv()),
+        cipher_key: Buffer::from(msg_key.cipher_key()),
+        seed: Buffer::from(msg_key.seed()),
+    })
+}
+
+#[napi]
+pub fn signal_group_chain_key_next(iteration: u32, seed: Buffer) -> Result<NapiSenderChainKey> {
+    let chain_key = baileys_core::signal::SenderChainKey::new(iteration, seed.as_ref());
+    let next_key = chain_key.get_next();
+    Ok(NapiSenderChainKey {
+        iteration: next_key.iteration(),
+        seed: Buffer::from(next_key.seed()),
+    })
+}
+
+#[napi]
+pub fn signal_group_chain_key_get_message_key(iteration: u32, seed: Buffer) -> Result<NapiSenderMessageKey> {
+    let chain_key = baileys_core::signal::SenderChainKey::new(iteration, seed.as_ref());
+    let msg_key = chain_key.get_sender_message_key();
+    Ok(NapiSenderMessageKey {
+        iteration: msg_key.iteration(),
+        iv: Buffer::from(msg_key.iv()),
+        cipher_key: Buffer::from(msg_key.cipher_key()),
+        seed: Buffer::from(msg_key.seed()),
+    })
+}
+
+#[napi]
+pub fn signal_group_parse_sender_key_name(name: String) -> Result<Option<NapiSenderKeyName>> {
+    let parsed = baileys_core::signal::SenderKeyName::parse(&name);
+    Ok(parsed.map(|n| NapiSenderKeyName {
+        group_id: n.group_id().to_string(),
+        sender: n.sender().to_string(),
+        device_id: n.device_id(),
+    }))
+}
+
+#[napi]
+pub fn signal_group_format_sender_key_name(group_id: String, sender: String, device_id: u32) -> Result<String> {
+    let name = baileys_core::signal::SenderKeyName::new(group_id, sender, device_id);
+    Ok(name.serialize())
+}
+
+#[napi]
+pub fn signal_group_create_sender_key_message(
+    key_id: u32,
+    iteration: u32,
+    ciphertext: Buffer,
+    signature_private_key: Buffer,
+) -> Result<Buffer> {
+    let msg = baileys_core::signal::SenderKeyMessage::new(
+        key_id,
+        iteration,
+        ciphertext.as_ref(),
+        signature_private_key.as_ref(),
+    ).map_err(|e| napi::Error::from_reason(e))?;
+    Ok(Buffer::from(msg.serialized()))
+}
+
+#[napi]
+pub fn signal_group_parse_sender_key_message(serialized: Buffer) -> Result<NapiSenderKeyMessage> {
+    let msg = baileys_core::signal::SenderKeyMessage::from_serialized(serialized.as_ref())
+        .map_err(|e| napi::Error::from_reason(e))?;
+    Ok(NapiSenderKeyMessage {
+        message_version: msg.message_version as u32,
+        key_id: msg.key_id(),
+        iteration: msg.iteration(),
+        ciphertext: Buffer::from(msg.ciphertext()),
+        signature: Buffer::from(msg.signature()),
+        serialized: Buffer::from(msg.serialized()),
+    })
+}
+
+#[napi]
+pub fn signal_group_verify_sender_key_message(serialized: Buffer, public_key: Buffer) -> Result<bool> {
+    let msg = match baileys_core::signal::SenderKeyMessage::from_serialized(serialized.as_ref()) {
+        Ok(m) => m,
+        Err(_) => return Ok(false),
+    };
+    Ok(msg.verify_signature(public_key.as_ref()).is_ok())
+}
+
+#[napi]
+pub fn signal_group_create_skdm(
+    id: u32,
+    iteration: u32,
+    chain_key: Buffer,
+    signature_key: Buffer,
+) -> Result<Buffer> {
+    let skdm = baileys_core::signal::SenderKeyDistributionMessage::new(
+        id,
+        iteration,
+        chain_key.as_ref(),
+        signature_key.as_ref(),
+    ).map_err(|e| napi::Error::from_reason(e))?;
+    Ok(Buffer::from(skdm.serialized()))
+}
+
+#[napi]
+pub fn signal_group_parse_skdm(serialized: Buffer) -> Result<NapiSenderKeyDistributionMessage> {
+    let skdm = baileys_core::signal::SenderKeyDistributionMessage::from_serialized(serialized.as_ref())
+        .map_err(|e| napi::Error::from_reason(e))?;
+    Ok(NapiSenderKeyDistributionMessage {
+        id: skdm.id(),
+        iteration: skdm.iteration(),
+        chain_key: Buffer::from(skdm.chain_key()),
+        signature_key: Buffer::from(skdm.signature_key()),
+        serialized: Buffer::from(skdm.serialized()),
+    })
+}
+
+#[napi]
+pub fn signal_group_record_deserialize(json_str: String) -> Result<String> {
+    let record = baileys_core::signal::SenderKeyRecord::deserialize_from_json(&json_str)
+        .map_err(|e| napi::Error::from_reason(e))?;
+    let serialized_states = record.serialize();
+    serde_json::to_string(&serialized_states)
+        .map_err(|e| napi::Error::from_reason(e.to_string()))
+}
+
+#[napi]
+pub fn signal_group_record_serialize(states_json: String) -> Result<String> {
+    let states: Vec<baileys_core::signal::SenderKeyState> = serde_json::from_str(&states_json)
+        .map_err(|e| napi::Error::from_reason(format!("Invalid SenderKeyState JSON: {}", e)))?;
+    let record = baileys_core::signal::SenderKeyRecord::from_states(states);
+    let serialized_states = record.serialize();
+    serde_json::to_string(&serialized_states)
+        .map_err(|e| napi::Error::from_reason(e.to_string()))
+}
+
 #[napi]
 pub fn version() -> String {
     format!("auriel-baileys-core v{}", baileys_core::version())
 }
+
 

@@ -12,6 +12,7 @@ pub mod newsletter;
 pub mod noise;
 pub mod proto;
 pub mod protocol;
+pub mod signal;
 pub mod sync;
 pub mod usync;
 pub mod wam;
@@ -31,6 +32,7 @@ pub use protocol::{
     decode_binary_node, encode_binary_node, jid_decode, jid_encode, jid_normalized_user,
     BinaryNode, BinaryNodeContent, FullJid, ProtocolError, Tags,
 };
+pub use signal::*;
 pub use sync::AppStateSync;
 pub use usync::USyncBuilder;
 pub use wam::WamEncoder;
