@@ -286,7 +286,7 @@ export function makeInMemoryStore(config = {}) {
  * internal getters (sock.ws.isOpen, sock.authState.creds), and full EventEmitter.
  */
 export function makeWASocket(config = {}) {
-  const authFolder = typeof config.auth?.state?.creds === 'object'
+  const authFolder = (typeof config.auth?.state?.creds === 'object' || typeof config.auth?.creds === 'object')
     ? './auth_info_baileys'
     : (typeof config.auth === 'string' ? config.auth : './auth_info_baileys');
 
@@ -330,13 +330,14 @@ export function makeWASocket(config = {}) {
     trace: () => {}
   };
 
-  const rawKeys = config.auth?.state?.keys || { get: async () => ({}), set: async () => {} };
+  const authCreds = config.auth?.creds || config.auth?.state?.creds || {};
+  const rawKeys = config.auth?.keys || config.auth?.state?.keys || { get: async () => ({}), set: async () => {} };
   const authKeys = typeof rawKeys.transaction === 'function'
     ? rawKeys
     : addTransactionCapability(rawKeys, signalLogger, { maxCommitRetries: 3, delayBetweenTriesMs: 50 });
 
   const signalAuthState = {
-    creds: config.auth?.state?.creds || {},
+    creds: authCreds,
     keys: authKeys
   };
 
