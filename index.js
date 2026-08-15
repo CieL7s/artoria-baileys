@@ -6,6 +6,7 @@ import { EventEmitter } from 'events';
 import { proto } from './WAProto/index.js';
 import { makeLibSignalRepository } from './lib/Signal/libsignal.js';
 import { decryptMessageNode } from './lib/Utils/decode-wa-message.js';
+import { addTransactionCapability } from './lib/Utils/auth-utils.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -329,8 +330,18 @@ export function makeWASocket(config = {}) {
     trace: () => {}
   };
 
+  const rawKeys = config.auth?.state?.keys || { get: async () => ({}), set: async () => {} };
+  const authKeys = typeof rawKeys.transaction === 'function'
+    ? rawKeys
+    : addTransactionCapability(rawKeys, signalLogger, { maxCommitRetries: 3, delayBetweenTriesMs: 50 });
+
+  const signalAuthState = {
+    creds: config.auth?.state?.creds || {},
+    keys: authKeys
+  };
+
   const repository = makeLibSignalRepository(
-    config.auth?.state || { creds: {}, keys: {} },
+    signalAuthState,
     signalLogger
   );
 
@@ -360,6 +371,7 @@ export function makeWASocket(config = {}) {
 
           (async () => {
             try {
+              console.log('[E2EE Decrypt] Processing incoming message:', formattedNode?.attrs?.id, 'from:', formattedNode?.attrs?.from);
               const { fullMessage, decrypt } = decryptMessageNode(
                 formattedNode,
                 meId,
@@ -368,6 +380,7 @@ export function makeWASocket(config = {}) {
                 signalLogger
               );
               await decrypt();
+              console.log('[E2EE Decrypt] Decrypted message result:', JSON.stringify(fullMessage?.message));
               if (fullMessage?.message) {
                 ev.emit('messages.upsert', {
                   messages: [fullMessage],
@@ -375,7 +388,7 @@ export function makeWASocket(config = {}) {
                 });
               }
             } catch (err) {
-              signalLogger.debug({ err }, 'failed to decrypt incoming message');
+              console.log('[E2EE Decrypt Error]:', err);
             }
           })();
           return;
