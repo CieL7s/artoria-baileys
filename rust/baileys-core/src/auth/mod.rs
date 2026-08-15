@@ -50,6 +50,8 @@ pub struct SignedKeyPair {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ContactInfo {
     pub id: String,
+    #[serde(default)]
+    pub lid: Option<String>,
     pub name: Option<String>,
     pub notify: Option<String>,
     pub verified_name: Option<String>,

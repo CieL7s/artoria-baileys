@@ -918,13 +918,16 @@ impl WsConnection {
                         .with_attr("id", msg_id)
                         .with_children(vec![sign_node]);
                     Self::send_encrypted_node(&reply_iq, noise_handler, send_tx).await;
+                    Self::send_unified_session(noise_handler, send_tx).await;
                 }
 
                 if let Some(device_node) = pair_success.get_child("device") {
                     if let Some(jid) = device_node.get_attr("jid") {
+                        let lid = device_node.get_attr("lid");
                         let mut creds_guard = creds.lock().await;
                         creds_guard.me = Some(crate::auth::ContactInfo {
                             id: jid.to_string(),
+                            lid: lid.map(|l| l.to_string()),
                             name: Some("~".to_string()),
                             notify: None,
                             verified_name: None,
@@ -955,6 +958,11 @@ impl WsConnection {
         } else if node.tag == "success" {
             let mut creds_guard = creds.lock().await;
             creds_guard.registered = true;
+            if let Some(lid) = node.get_attr("lid") {
+                if let Some(ref mut me) = creds_guard.me {
+                    me.lid = Some(lid.to_string());
+                }
+            }
             let creds_clone = creds_guard.clone();
             drop(creds_guard);
 
@@ -965,13 +973,20 @@ impl WsConnection {
                 }
             }
 
-            // Send passive active IQ matching Baileys socket.ts
+            // 1. Upload 30 PreKeys to WhatsApp server
+            Self::upload_prekeys(auth_folder, creds, noise_handler, send_tx).await;
+
+            // 2. Send passive active IQ matching Baileys socket.ts
             let active_node = BinaryNode::new("iq")
                 .with_attr("to", "@s.whatsapp.net")
                 .with_attr("xmlns", "passive")
                 .with_attr("type", "set")
+                .with_attr("id", format!("active_{}", rand::random::<u32>()))
                 .with_children(vec![BinaryNode::new("active")]);
             Self::send_encrypted_node(&active_node, noise_handler, send_tx).await;
+
+            // 3. Send unified session telemetry
+            Self::send_unified_session(noise_handler, send_tx).await;
 
             is_open.store(true, Ordering::SeqCst);
             let _ = event_tx.send(BotEvent::CredsUpdate(creds_clone));
@@ -983,6 +998,142 @@ impl WsConnection {
                 is_new_login: Some(false),
                 last_disconnect: None,
             });
+        } else if node.tag == "ib" {
+            if let Some(dirty_node) = node.get_child("dirty") {
+                let dirty_type = dirty_node.get_attr("type").unwrap_or("account_sync");
+                let timestamp = dirty_node.get_attr("timestamp");
+
+                let mut clean_child = BinaryNode::new("clean").with_attr("type", dirty_type);
+                if let Some(ts) = timestamp {
+                    clean_child = clean_child.with_attr("timestamp", ts);
+                }
+
+                let clean_iq = BinaryNode::new("iq")
+                    .with_attr("to", "@s.whatsapp.net")
+                    .with_attr("type", "set")
+                    .with_attr("xmlns", "urn:xmpp:whatsapp:dirty")
+                    .with_attr("id", format!("clean_{}", rand::random::<u32>()))
+                    .with_children(vec![clean_child]);
+
+                println!("[WS Dirty] Responding clean dirty bits for type={}", dirty_type);
+                Self::send_encrypted_node(&clean_iq, noise_handler, send_tx).await;
+            }
         }
+    }
+
+    async fn upload_prekeys(
+        auth_folder: Option<&std::path::PathBuf>,
+        creds: &Arc<Mutex<AuthenticationCreds>>,
+        noise_handler: &Arc<Mutex<NoiseHandler>>,
+        send_tx: &mpsc::UnboundedSender<Vec<u8>>,
+    ) {
+        let mut creds_guard = creds.lock().await;
+        let folder_opt = auth_folder.cloned();
+
+        let reg_id = creds_guard.registration_id;
+        let signed_ident_pub = creds_guard.signed_identity_key.public.clone();
+        let signed_skey = creds_guard.signed_pre_key.clone();
+
+        let mut prekeys_to_upload = Vec::new();
+
+        // Generate 30 prekeys
+        for id in 1..=30u32 {
+            let keypair = crate::auth::KeyPair::generate();
+
+            if let Some(ref folder) = folder_opt {
+                let prekey_path = folder.join(format!("pre-key-{}.json", id));
+                let priv_b64 = base64::engine::general_purpose::STANDARD.encode(&keypair.private);
+                let pub_b64 = base64::engine::general_purpose::STANDARD.encode(&keypair.public);
+
+                let json_content = serde_json::json!({
+                    "private": {
+                        "type": "Buffer",
+                        "data": priv_b64
+                    },
+                    "public": {
+                        "type": "Buffer",
+                        "data": pub_b64
+                    }
+                });
+                let _ = std::fs::write(&prekey_path, serde_json::to_string_pretty(&json_content).unwrap_or_default());
+            }
+
+            prekeys_to_upload.push((id, keypair.public));
+        }
+
+        creds_guard.next_pre_key_id = 31;
+        creds_guard.first_unuploaded_pre_key_id = 31;
+
+        let creds_clone = creds_guard.clone();
+        drop(creds_guard);
+
+        if let Some(ref folder) = folder_opt {
+            let creds_path = folder.join("creds.json");
+            if let Ok(serialized) = serde_json::to_string_pretty(&creds_clone) {
+                let _ = std::fs::write(&creds_path, serialized);
+            }
+        }
+
+        // Build encrypt IQ
+        let mut reg_bytes = vec![0u8; 4];
+        reg_bytes[0] = ((reg_id >> 24) & 0xff) as u8;
+        reg_bytes[1] = ((reg_id >> 16) & 0xff) as u8;
+        reg_bytes[2] = ((reg_id >> 8) & 0xff) as u8;
+        reg_bytes[3] = (reg_id & 0xff) as u8;
+
+        let mut key_nodes = Vec::new();
+        for (id, pub_bytes) in prekeys_to_upload {
+            let id_bytes = vec![((id >> 16) & 0xff) as u8, ((id >> 8) & 0xff) as u8, (id & 0xff) as u8];
+            key_nodes.push(
+                BinaryNode::new("key")
+                    .with_children(vec![
+                        BinaryNode::new("id").with_bytes_content(id_bytes),
+                        BinaryNode::new("value").with_bytes_content(pub_bytes),
+                    ])
+            );
+        }
+
+        let skey_id = signed_skey.key_id;
+        let skey_id_bytes = vec![((skey_id >> 16) & 0xff) as u8, ((skey_id >> 8) & 0xff) as u8, (skey_id & 0xff) as u8];
+        let skey_node = BinaryNode::new("skey")
+            .with_children(vec![
+                BinaryNode::new("id").with_bytes_content(skey_id_bytes),
+                BinaryNode::new("value").with_bytes_content(signed_skey.key_pair.public.clone()),
+                BinaryNode::new("signature").with_bytes_content(signed_skey.signature.clone()),
+            ]);
+
+        let encrypt_iq = BinaryNode::new("iq")
+            .with_attr("to", "@s.whatsapp.net")
+            .with_attr("type", "set")
+            .with_attr("xmlns", "encrypt")
+            .with_attr("id", format!("encrypt_upload_{}", rand::random::<u32>()))
+            .with_children(vec![
+                BinaryNode::new("registration").with_bytes_content(reg_bytes),
+                BinaryNode::new("type").with_bytes_content(vec![5u8]),
+                BinaryNode::new("identity").with_bytes_content(signed_ident_pub),
+                BinaryNode::new("list").with_children(key_nodes),
+                skey_node,
+            ]);
+
+        println!("[WS PreKeys] Uploading 30 PreKeys to WhatsApp Server...");
+        Self::send_encrypted_node(&encrypt_iq, noise_handler, send_tx).await;
+    }
+
+    async fn send_unified_session(
+        noise_handler: &Arc<Mutex<NoiseHandler>>,
+        send_tx: &mpsc::UnboundedSender<Vec<u8>>,
+    ) {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis();
+        let session_id = (now % (7 * 24 * 60 * 60 * 1000)).to_string();
+
+        let unified_node = BinaryNode::new("ib")
+            .with_children(vec![
+                BinaryNode::new("unified_session")
+                    .with_attr("id", session_id)
+            ]);
+        Self::send_encrypted_node(&unified_node, noise_handler, send_tx).await;
     }
 }

@@ -141,6 +141,7 @@ impl WhatsAppClientCore {
         creds_guard.pairing_code = Some(raw_code.clone());
         creds_guard.me = Some(crate::auth::ContactInfo {
             id: format!("{}@s.whatsapp.net", phone_number),
+            lid: None,
             name: Some("~".to_string()),
             notify: None,
             verified_name: None,
