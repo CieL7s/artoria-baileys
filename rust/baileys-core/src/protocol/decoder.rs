@@ -291,15 +291,35 @@ impl<'a> Decoder<'a> {
 }
 
 pub fn decode_binary_node(buffer: &[u8]) -> Result<BinaryNode, ProtocolError> {
+    use std::io::Read;
+    use flate2::read::ZlibDecoder;
+
     if buffer.is_empty() {
         return Err(ProtocolError::EndOfStream);
     }
-    // Skip prefix (0x00) if uncompressed
-    let data = if buffer[0] == 0 {
-        &buffer[1..]
+    let flag = buffer[0];
+    let decompressed;
+    let data: &[u8] = if (flag & 2) != 0 {
+        let mut zlib_decoder = ZlibDecoder::new(&buffer[1..]);
+        let mut buf = Vec::new();
+        if zlib_decoder.read_to_end(&mut buf).is_ok() {
+            decompressed = buf;
+            &decompressed[..]
+        } else {
+            // Fallback to raw deflate
+            let mut deflate_decoder = flate2::read::DeflateDecoder::new(&buffer[1..]);
+            let mut buf_deflate = Vec::new();
+            if deflate_decoder.read_to_end(&mut buf_deflate).is_ok() {
+                decompressed = buf_deflate;
+                &decompressed[..]
+            } else {
+                &buffer[1..]
+            }
+        }
     } else {
-        buffer
+        &buffer[1..]
     };
+
     let mut decoder = Decoder::new(data);
     decoder.decode_node()
 }
