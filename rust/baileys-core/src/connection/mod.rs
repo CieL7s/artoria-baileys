@@ -151,18 +151,25 @@ impl NoiseHandler {
 
         // Build Client Payload
         let client_payload = if creds.registered && creds.me.is_some() {
-            let me_id = &creds.me.as_ref().unwrap().id;
-            let user_num: u64 = me_id.split('@').next().unwrap_or("0").parse().unwrap_or(0);
+            let me_jid = &creds.me.as_ref().unwrap().id;
+            let decoded = crate::protocol::jid::jid_decode(me_jid);
+            let user_num: u64 = decoded.as_ref().and_then(|d| d.user.parse::<u64>().ok()).unwrap_or(0);
+            let device_num: Option<u32> = decoded.as_ref().and_then(|d| d.device.map(|dev| dev as u32));
+
+            println!("[WS Login] Connecting with username={}, device={:?}, jid={}", user_num, device_num, me_jid);
+
             ClientPayload {
                 username: Some(user_num),
+                device: device_num,
                 passive: Some(true),
                 pull: Some(true),
+                lid_db_migrated: Some(false),
                 user_agent: Some(UserAgent {
                     platform: Some(14), // WEB = 14
                     app_version: Some(AppVersion {
                         primary: Some(2),
                         secondary: Some(3000),
-                        tertiary: Some(1043857760),
+                        tertiary: Some(1015901307),
                         quaternary: None,
                     }),
                     os_version: Some("0.1".to_string()),
@@ -933,13 +940,12 @@ impl WsConnection {
                             }
                         }
 
-                        is_open.store(true, Ordering::SeqCst);
                         let _ = event_tx.send(BotEvent::CredsUpdate(creds_clone));
                         let _ = event_tx.send(BotEvent::ConnectionUpdate {
-                            connection: Some("open".to_string()),
-                            status: "open".to_string(),
+                            connection: None,
+                            status: "pairing-success".to_string(),
                             qr: None,
-                            is_logged_in: true,
+                            is_logged_in: false,
                             is_new_login: Some(true),
                             last_disconnect: None,
                         });
@@ -958,6 +964,14 @@ impl WsConnection {
                     let _ = std::fs::write(&creds_path, serialized);
                 }
             }
+
+            // Send passive active IQ matching Baileys socket.ts
+            let active_node = BinaryNode::new("iq")
+                .with_attr("to", "@s.whatsapp.net")
+                .with_attr("xmlns", "passive")
+                .with_attr("type", "set")
+                .with_children(vec![BinaryNode::new("active")]);
+            Self::send_encrypted_node(&active_node, noise_handler, send_tx).await;
 
             is_open.store(true, Ordering::SeqCst);
             let _ = event_tx.send(BotEvent::CredsUpdate(creds_clone));

@@ -171,6 +171,8 @@ pub struct ClientPayload {
     pub device_pairing_data: Option<DevicePairingData>,
     #[prost(bool, optional, tag = "33")]
     pub pull: Option<bool>,
+    #[prost(bool, optional, tag = "41")]
+    pub lid_db_migrated: Option<bool>,
 }
 
 #[derive(Clone, PartialEq, ProstMessage, Serialize, Deserialize)]
