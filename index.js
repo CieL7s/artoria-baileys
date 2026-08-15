@@ -577,6 +577,41 @@ export function makeWASocket(config = {}) {
       });
     },
 
+    sendPresenceUpdate: async (type = 'available', toJid) => {
+      const meName = (authState.creds.me?.name || '~').replace(/@/g, '');
+      if (type === 'available' || type === 'unavailable') {
+        const node = {
+          tag: 'presence',
+          attrs: {
+            name: meName,
+            type: type
+          }
+        };
+        nativeClient.sendRawNode(node);
+      } else if (toJid) {
+        const node = {
+          tag: 'presence',
+          attrs: {
+            to: toJid,
+            type: type
+          }
+        };
+        nativeClient.sendRawNode(node);
+      }
+    },
+
+    presenceSubscribe: async (toJid) => {
+      const node = {
+        tag: 'presence',
+        attrs: {
+          to: toJid,
+          id: `presence_sub_${Date.now()}`,
+          type: 'subscribe'
+        }
+      };
+      nativeClient.sendRawNode(node);
+    },
+
     logout: async (msg) => {
       ev.emit('connection.update', {
         connection: 'close',

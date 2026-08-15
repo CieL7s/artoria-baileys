@@ -997,6 +997,13 @@ impl WsConnection {
             // 3. Send unified session telemetry
             Self::send_unified_session(noise_handler, send_tx).await;
 
+            // 4. Send presence available to mark bot as online
+            let me_name = creds_clone.me.as_ref().and_then(|m| m.name.clone()).unwrap_or_else(|| "~".to_string());
+            let presence_node = BinaryNode::new("presence")
+                .with_attr("name", me_name.replace('@', ""))
+                .with_attr("type", "available");
+            Self::send_encrypted_node(&presence_node, noise_handler, send_tx).await;
+
             is_open.store(true, Ordering::SeqCst);
             let _ = event_tx.send(BotEvent::CredsUpdate(creds_clone));
             let _ = event_tx.send(BotEvent::ConnectionUpdate {
