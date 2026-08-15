@@ -52,5 +52,7 @@ pub enum BotEvent {
         participants: Vec<String>,
         action: String,
     },
+    #[serde(rename = "raw.node")]
+    RawNode(crate::protocol::node::BinaryNode),
 }
 

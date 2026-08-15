@@ -643,6 +643,8 @@ impl WsConnection {
                 Self::send_encrypted_node(&ack_node, noise_handler, send_tx).await;
             }
 
+            let _ = event_tx.send(BotEvent::RawNode(node.clone()));
+
             if let Some(msg_info) = MessageParser::parse_incoming_message(node) {
                 let _ = event_tx.send(BotEvent::MessageUpsert {
                     messages: vec![msg_info],

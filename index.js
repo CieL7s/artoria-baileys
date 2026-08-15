@@ -4,6 +4,8 @@ import { fileURLToPath } from 'url';
 import fs from 'fs';
 import { EventEmitter } from 'events';
 import { proto } from './WAProto/index.js';
+import { makeLibSignalRepository } from './lib/Signal/libsignal.js';
+import { decryptMessageNode } from './lib/Utils/decode-wa-message.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -296,6 +298,42 @@ export function makeWASocket(config = {}) {
   ev.process = (fn) => fn();
   ev.flush = () => {};
 
+  function formatRustBinaryNodeToBaileys(node) {
+    if (!node) return node;
+    let content = undefined;
+    if (node.content) {
+      if (typeof node.content.String === 'string') {
+        content = node.content.String;
+      } else if (Array.isArray(node.content.Bytes)) {
+        content = Buffer.from(node.content.Bytes);
+      } else if (Array.isArray(node.content.List)) {
+        content = node.content.List.map(formatRustBinaryNodeToBaileys);
+      } else if (Array.isArray(node.content)) {
+        content = node.content.map(formatRustBinaryNodeToBaileys);
+      } else if (typeof node.content === 'string') {
+        content = node.content;
+      }
+    }
+    return {
+      tag: node.tag,
+      attrs: node.attrs || {},
+      content
+    };
+  }
+
+  const signalLogger = config.logger || {
+    debug: () => {},
+    info: () => {},
+    warn: () => {},
+    error: () => {},
+    trace: () => {}
+  };
+
+  const repository = makeLibSignalRepository(
+    config.auth?.state || { creds: {}, keys: {} },
+    signalLogger
+  );
+
   // Connect native events to JS EventEmitter
   nativeClient.onEvent((arg1, arg2) => {
     const raw = typeof arg1 === 'string' ? arg1 : (typeof arg2 === 'string' ? arg2 : null);
@@ -314,6 +352,33 @@ export function makeWASocket(config = {}) {
           if (config.auth?.state?.creds) {
             config.auth.state.creds.registered = true;
           }
+        } else if (evt.type === 'raw.node' && evt.data?.tag === 'message') {
+          const rawNode = evt.data;
+          const formattedNode = formatRustBinaryNodeToBaileys(rawNode);
+          const meId = config.auth?.state?.creds?.me?.id || nativeClient.getUserId() || '';
+          const meLid = config.auth?.state?.creds?.me?.lid || '';
+
+          (async () => {
+            try {
+              const { fullMessage, decrypt } = decryptMessageNode(
+                formattedNode,
+                meId,
+                meLid,
+                repository,
+                signalLogger
+              );
+              await decrypt();
+              if (fullMessage?.message) {
+                ev.emit('messages.upsert', {
+                  messages: [fullMessage],
+                  type: 'notify'
+                });
+              }
+            } catch (err) {
+              signalLogger.debug({ err }, 'failed to decrypt incoming message');
+            }
+          })();
+          return;
         }
 
         if (evt.type === 'connection.update' && evt.data?.qr && printQR) {
