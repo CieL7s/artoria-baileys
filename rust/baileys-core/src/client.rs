@@ -65,6 +65,10 @@ impl WhatsAppClientCore {
         let event_tx_clone = self.event_tx.clone();
         let is_open_clone = self.is_open.clone();
         let print_qr = self.print_qr_terminal;
+        let auth_folder = {
+            let auth_guard = self.auth.lock().await;
+            Some(auth_guard.folder.clone())
+        };
 
         let mut rx_guard = self.outgoing_rx.lock().await;
         let rx = match rx_guard.take() {
@@ -75,7 +79,7 @@ impl WhatsAppClientCore {
             }
         };
 
-        let conn = WsConnection::new(creds_clone, event_tx_clone, is_open_clone, print_qr);
+        let conn = WsConnection::new(creds_clone, event_tx_clone, is_open_clone, print_qr, auth_folder);
         conn.start(rx).await;
     }
 
@@ -85,8 +89,14 @@ impl WhatsAppClientCore {
         let is_open_clone = self.is_open.clone();
         let print_qr = self.print_qr_terminal;
         let rx_arc = self.outgoing_rx.clone();
+        let auth_arc = self.auth.clone();
 
         tokio::spawn(async move {
+            let auth_folder = {
+                let auth_guard = auth_arc.lock().await;
+                Some(auth_guard.folder.clone())
+            };
+
             let mut rx_guard = rx_arc.lock().await;
             let rx = match rx_guard.take() {
                 Some(r) => r,
@@ -96,7 +106,7 @@ impl WhatsAppClientCore {
                 }
             };
 
-            let conn = WsConnection::new(creds_clone, event_tx_clone, is_open_clone, print_qr);
+            let conn = WsConnection::new(creds_clone, event_tx_clone, is_open_clone, print_qr, auth_folder);
             conn.start(rx).await;
         });
     }

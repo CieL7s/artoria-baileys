@@ -206,7 +206,7 @@ impl SignalKeyStore for MemorySignalStore {
 }
 
 pub struct FileAuthState {
-    folder: std::path::PathBuf,
+    pub folder: std::path::PathBuf,
     pub creds: AuthenticationCreds,
     pub store: MemorySignalStore,
 }

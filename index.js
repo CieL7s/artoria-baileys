@@ -134,7 +134,6 @@ export async function fetchLatestBaileysVersion() {
   };
 }
 
-// Authentication state management compatible with Baileys filesystem format
 export async function useMultiFileAuthState(folder) {
   const resolvedPath = path.resolve(folder);
   if (!fs.existsSync(resolvedPath)) {
@@ -142,7 +141,7 @@ export async function useMultiFileAuthState(folder) {
   }
 
   const credsPath = path.join(resolvedPath, 'creds.json');
-  let creds;
+  let creds = null;
 
   if (fs.existsSync(credsPath)) {
     try {
@@ -153,49 +152,28 @@ export async function useMultiFileAuthState(folder) {
   }
 
   if (!creds) {
-    creds = {
-      noiseKey: {
-        public: Buffer.alloc(32, 1).toString('base64'),
-        private: Buffer.alloc(32, 2).toString('base64')
-      },
-      pairingEphemeralKeyPair: {
-        public: Buffer.alloc(32, 3).toString('base64'),
-        private: Buffer.alloc(32, 4).toString('base64')
-      },
-      signedIdentityKey: {
-        public: Buffer.alloc(32, 5).toString('base64'),
-        private: Buffer.alloc(32, 6).toString('base64')
-      },
-      signedPreKey: {
-        keyPair: {
-          public: Buffer.alloc(32, 7).toString('base64'),
-          private: Buffer.alloc(32, 8).toString('base64')
-        },
-        signature: Buffer.alloc(64, 9).toString('base64'),
-        keyId: 1
-      },
-      registrationId: Math.floor(Math.random() * 16383) + 1,
-      advSecretKey: Buffer.alloc(32, 10).toString('base64'),
-      me: undefined,
-      account: undefined,
-      signalIdentities: [],
-      myAppStateKeyId: undefined,
-      firstUnuploadedPreKeyId: 1,
-      nextPreKeyId: 1,
-      lastAccountSyncTimestamp: undefined,
-      accountSyncCounter: 0,
-      accountSettings: {
-        unarchiveChats: false
-      },
-      registered: false,
-      pairingCode: undefined,
-      lastPropHash: undefined,
-      routingInfo: undefined
-    };
-    fs.writeFileSync(credsPath, JSON.stringify(creds, null, 2));
+    try {
+      const tempClient = new WhatsAppClient(resolvedPath, false);
+      const snapshot = tempClient.getAuthStateSnapshot();
+      if (snapshot) {
+        creds = JSON.parse(snapshot);
+      }
+    } catch (e) {}
+
+    if (!creds) {
+      creds = {
+        registered: false,
+        accountSyncCounter: 0,
+        nextPreKeyId: 1,
+        firstUnuploadedPreKeyId: 1
+      };
+    }
   }
 
-  const saveCreds = () => {
+  const saveCreds = (newCreds) => {
+    if (newCreds && typeof newCreds === 'object') {
+      Object.assign(creds, newCreds);
+    }
     fs.writeFileSync(credsPath, JSON.stringify(creds, null, 2));
   };
 
@@ -325,6 +303,19 @@ export function makeWASocket(config = {}) {
     try {
       const evt = JSON.parse(raw);
       if (evt.type && evt.data !== undefined) {
+        if (evt.type === 'creds.update') {
+          if (config.auth?.state?.creds) {
+            Object.assign(config.auth.state.creds, evt.data);
+          }
+          if (typeof config.auth?.saveCreds === 'function') {
+            try { config.auth.saveCreds(evt.data); } catch {}
+          }
+        } else if (evt.type === 'connection.update' && evt.data?.is_logged_in) {
+          if (config.auth?.state?.creds) {
+            config.auth.state.creds.registered = true;
+          }
+        }
+
         if (evt.type === 'connection.update' && evt.data?.qr && printQR) {
           try {
             const qrTerminal = require('qrcode-terminal');
