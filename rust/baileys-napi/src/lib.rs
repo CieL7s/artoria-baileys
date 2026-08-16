@@ -1218,6 +1218,37 @@ pub fn decode_message_node(
 }
 
 #[napi]
+pub fn sync_process_contact_action(action_json: String, id: Option<String>) -> Result<String> {
+    let action: serde_json::Value = serde_json::from_str(&action_json)
+        .map_err(|e| napi::Error::from_reason(format!("Invalid action JSON: {}", e)))?;
+    let results = baileys_core::sync::SyncActionProcessor::process_contact_action(&action, id.as_deref());
+    serde_json::to_string(&results)
+        .map_err(|e| napi::Error::from_reason(format!("Failed to serialize SyncActionResult: {}", e)))
+}
+
+#[napi]
+pub fn history_extract_pn_from_messages(messages_json: String) -> Result<Option<String>> {
+    let msgs: Vec<serde_json::Value> = serde_json::from_str(&messages_json)
+        .map_err(|e| napi::Error::from_reason(format!("Invalid messages JSON: {}", e)))?;
+    Ok(baileys_core::sync::HistoryProcessor::extract_pn_from_messages(&msgs))
+}
+
+#[napi]
+pub fn history_process_message(history_json: String) -> Result<String> {
+    let history: serde_json::Value = serde_json::from_str(&history_json)
+        .map_err(|e| napi::Error::from_reason(format!("Invalid history JSON: {}", e)))?;
+    let res = baileys_core::sync::HistoryProcessor::process_history_message(history);
+    serde_json::to_string(&res)
+        .map_err(|e| napi::Error::from_reason(format!("Failed to serialize ProcessedHistoryResult: {}", e)))
+}
+
+#[napi]
+pub fn compute_app_state_patch_mac(patch_data: Buffer, mac_key: Buffer) -> Buffer {
+    let mac = baileys_core::sync::AppStateSync::compute_patch_mac(&patch_data, &mac_key);
+    Buffer::from(mac)
+}
+
+#[napi]
 pub fn version() -> String {
     format!("auriel-baileys-core v{}", baileys_core::version())
 }
