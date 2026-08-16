@@ -38,12 +38,12 @@ jobs:
             test_local: false
             setup_musl: true
 
-          # 4. macOS Intel x64
-          - os: macos-13
+          # 4. macOS Intel x64 (Cross-compiled via Apple Clang on macos-latest)
+          - os: macos-latest
             target: x86_64-apple-darwin
             output_name: baileys-napi.darwin-x64.node
             artifact_name: darwin-x64
-            test_local: true
+            test_local: false
 
           # 5. macOS Apple Silicon ARM64 (M1/M2/M3/M4)
           - os: macos-latest
@@ -94,6 +94,7 @@ jobs:
           CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: ${{ matrix.setup_aarch64 && 'aarch64-linux-gnu-gcc' || '' }}
           CC_aarch64_unknown_linux_gnu: ${{ matrix.setup_aarch64 && 'aarch64-linux-gnu-gcc' || '' }}
           CXX_aarch64_unknown_linux_gnu: ${{ matrix.setup_aarch64 && 'aarch64-linux-gnu-g++' || '' }}
+          CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER: ${{ matrix.setup_musl && 'musl-gcc' || '' }}
           CC_x86_64_unknown_linux_musl: ${{ matrix.setup_musl && 'musl-gcc' || '' }}
         run: cargo build --manifest-path rust/Cargo.toml --package baileys-napi --release --target ${{ matrix.target }}
 
