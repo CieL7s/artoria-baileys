@@ -2,8 +2,8 @@ name: Cross-Platform Native Build & Release
 
 on:
   push:
-    branches: [main]
-    tags: ['v*']
+    branches: [main, 'ci-test/*']
+    tags: ['v*.*.*', 'v*']
   pull_request:
     branches: [main]
   workflow_dispatch:
@@ -16,47 +16,71 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # Windows x64
+          # 1. Windows x64 (MSVC)
           - os: windows-latest
             target: x86_64-pc-windows-msvc
-            output_name: baileys_napi.win32-x64-msvc.node
+            output_name: baileys-napi.win32-x64-msvc.node
             artifact_name: win32-x64-msvc
-          # Linux x64 (glibc / Ubuntu / Debian / CentOS / Docker)
+            test_local: true
+
+          # 2. Linux x64 glibc (Ubuntu / Debian / CentOS / VPS)
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
-            output_name: baileys_napi.linux-x64-gnu.node
+            output_name: baileys-napi.linux-x64-gnu.node
             artifact_name: linux-x64-gnu
-          # macOS Intel x64
-          - os: macos-13
+            test_local: true
+
+          # 3. macOS Intel x64 (Cross-compiled via Apple Clang on macos-latest)
+          - os: macos-latest
             target: x86_64-apple-darwin
-            output_name: baileys_napi.darwin-x64.node
+            output_name: baileys-napi.darwin-x64.node
             artifact_name: darwin-x64
-          # macOS Apple Silicon ARM64 (M1/M2/M3/M4)
+            test_local: false
+
+          # 4. macOS Apple Silicon ARM64 (M1/M2/M3/M4)
           - os: macos-latest
             target: aarch64-apple-darwin
-            output_name: baileys_napi.darwin-arm64.node
+            output_name: baileys-napi.darwin-arm64.node
             artifact_name: darwin-arm64
+            test_local: true
+
+          # 5. Linux ARM64 glibc (Raspberry Pi / ARM VPS)
+          - os: ubuntu-latest
+            target: aarch64-unknown-linux-gnu
+            output_name: baileys-napi.linux-arm64-gnu.node
+            artifact_name: linux-arm64-gnu
+            test_local: false
+            setup_aarch64: true
 
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      - name: Install Rust Toolchain
+      - name: Setup Node.js LTS
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install System Cross-Toolchains (aarch64)
+        if: runner.os == 'Linux' && matrix.setup_aarch64
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
+
+      - name: Install Rust Toolchain (${{ matrix.target }})
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
 
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@v1
-        with:
-          bun-version: latest
-
       - name: Install Node Dependencies
-        run: bun install
+        run: npm install --no-audit --no-fund
 
       - name: Build Native Addon (Release)
         env:
           RUSTFLAGS: ${{ runner.os == 'macOS' && '-C link-arg=-undefined -C link-arg=dynamic_lookup' || '' }}
+          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: ${{ matrix.setup_aarch64 && 'aarch64-linux-gnu-gcc' || '' }}
+          CC_aarch64_unknown_linux_gnu: ${{ matrix.setup_aarch64 && 'aarch64-linux-gnu-gcc' || '' }}
+          CXX_aarch64_unknown_linux_gnu: ${{ matrix.setup_aarch64 && 'aarch64-linux-gnu-g++' || '' }}
         run: cargo build --manifest-path rust/Cargo.toml --package baileys-napi --release --target ${{ matrix.target }}
 
       - name: Prepare Binary Artifact
@@ -70,6 +94,15 @@ jobs:
           else
             cp rust/target/${{ matrix.target }}/release/libbaileys_napi.so dist-binaries/${{ matrix.output_name }}
           fi
+          echo "Built binary size:"
+          ls -lh dist-binaries/${{ matrix.output_name }}
+
+      - name: Run Test Suite on Host Runner
+        if: matrix.test_local == true
+        shell: bash
+        run: |
+          cp dist-binaries/${{ matrix.output_name }} ./baileys-napi.node
+          npm run test:node
 
       - name: Upload Binary Artifact
         uses: actions/upload-artifact@v4
@@ -77,9 +110,33 @@ jobs:
           name: ${{ matrix.artifact_name }}
           path: dist-binaries/${{ matrix.output_name }}
 
-      - name: Run Test Suite (Local Runner Target)
-        if: matrix.target == 'x86_64-pc-windows-msvc' || matrix.target == 'x86_64-unknown-linux-gnu' || matrix.target == 'aarch64-apple-darwin'
-        shell: bash
+  release:
+    name: Publish Release Assets
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Download All Native Artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: all-artifacts
+
+      - name: Organize Release Binaries
         run: |
-          cp dist-binaries/${{ matrix.output_name }} ./baileys_napi.node
-          bun test
+          mkdir -p release-dist
+          find all-artifacts -type f -name "*.node" -exec cp {} release-dist/ \;
+          echo "=== Release Binaries Staged ==="
+          ls -lh release-dist/
+
+      - name: Create or Update GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release-dist/*.node
+          generate_release_notes: true
+          draft: false
+          prerelease: false
