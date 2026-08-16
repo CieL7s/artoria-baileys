@@ -1149,6 +1149,48 @@ pub fn usync_parse_query_result(
 }
 
 #[napi]
+pub fn normalize_message_content(content_json: String) -> Result<Option<String>> {
+    let val: serde_json::Value = serde_json::from_str(&content_json)
+        .map_err(|e| napi::Error::from_reason(format!("Invalid message JSON: {}", e)))?;
+    let normalized = baileys_core::message::MessageNormalizer::normalize_message_content(val);
+    match normalized {
+        Some(v) => {
+            let s = serde_json::to_string(&v)
+                .map_err(|e| napi::Error::from_reason(format!("Failed to serialize normalized JSON: {}", e)))?;
+            Ok(Some(s))
+        }
+        None => Ok(None),
+    }
+}
+
+#[napi]
+pub fn extract_message_content(content_json: String) -> Result<Option<String>> {
+    let val: serde_json::Value = serde_json::from_str(&content_json)
+        .map_err(|e| napi::Error::from_reason(format!("Invalid message JSON: {}", e)))?;
+    let extracted = baileys_core::message::MessageNormalizer::extract_message_content(val);
+    match extracted {
+        Some(v) => {
+            let s = serde_json::to_string(&v)
+                .map_err(|e| napi::Error::from_reason(format!("Failed to serialize extracted JSON: {}", e)))?;
+            Ok(Some(s))
+        }
+        None => Ok(None),
+    }
+}
+
+#[napi]
+pub fn get_content_type(content_json: String) -> Result<Option<String>> {
+    let val: serde_json::Value = serde_json::from_str(&content_json)
+        .map_err(|e| napi::Error::from_reason(format!("Invalid message JSON: {}", e)))?;
+    Ok(baileys_core::message::MessageNormalizer::get_content_type(&val))
+}
+
+#[napi]
+pub fn get_device(id: String) -> Result<String> {
+    Ok(baileys_core::message::MessageNormalizer::get_device(&id).to_string())
+}
+
+#[napi]
 pub fn version() -> String {
     format!("auriel-baileys-core v{}", baileys_core::version())
 }

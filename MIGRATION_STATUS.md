@@ -61,7 +61,7 @@ Setiap iterasi yang selesai WAJIB memperbarui status di tabel ini.
 | `lib/WAUSync/*` (Query & Protocols) | ✅ FULLY DELEGATED | **Rust N-API (Default)** | `baileys_core::usync::*` | Multi-protocol USync query & response parsing (7 protokol: contact, devices, status, disappearing, lid, bot, username) lolos 11/11 parity test PASS. |
 | `lib/Utils/decode-wa-message.js` | 🔴 NOT STARTED | **JavaScript** | `baileys_core::message::MessageDecoder` | Unpack protobuf payload WA E2E (SKDM, viewOnce, reaction). |
 | `lib/Utils/process-message.js` | 🔴 NOT STARTED | **JavaScript** | `baileys_core::message::MessageProcessor` | Processing unread count, upsert emitter, chat sync. |
-| `lib/Utils/messages.js` | 🔴 NOT STARTED | **JavaScript** | `baileys_core::message::MessageBuilder` | Protobuf builder untuk seluruh variasi pesan WA. |
+| `lib/Utils/messages.js` | ✅ FULLY DELEGATED | **Rust N-API (Default)** | `baileys_core::message::normalizer` | Unwrapping wrapper Protobuf (`ephemeral`, `viewOnce`, `viewOnceV2`, `documentWithCaption`, `editedMessage`, template buttons), `getContentType`, `getDevice`. Lolos 19/19 parity test PASS. |
 | `lib/Utils/sync-action-utils.js` & `history.js` | 🔴 NOT STARTED | **JavaScript** | `baileys_core::sync::AppStateSync` | App State Sync patches & initial history sync. |
 
 ---
