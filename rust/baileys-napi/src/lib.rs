@@ -787,6 +787,314 @@ pub fn signal_group_record_serialize(states_json: String) -> Result<String> {
 }
 
 #[napi]
+pub fn signal_lid_validate_pairs(pairs_json: String) -> Result<String> {
+    let pairs: Vec<baileys_core::signal::LidPnPair> = serde_json::from_str(&pairs_json)
+        .map_err(|e| napi::Error::from_reason(format!("Invalid LidPnPair JSON: {}", e)))?;
+    let validated = baileys_core::signal::validate_lid_pn_pairs(&pairs);
+    serde_json::to_string(&validated)
+        .map_err(|e| napi::Error::from_reason(e.to_string()))
+}
+
+#[napi]
+pub fn signal_lid_resolve_pn_to_lid(pn_jid: String, lid_user: String) -> Option<String> {
+    baileys_core::signal::resolve_pn_to_lid(&pn_jid, &lid_user)
+}
+
+#[napi]
+pub fn signal_lid_resolve_lid_to_pn(lid_jid: String, pn_user: String) -> Option<String> {
+    baileys_core::signal::resolve_lid_to_pn(&lid_jid, &pn_user)
+}
+
+#[napi]
+pub fn signal_lid_build_db_batch(pairs_json: String) -> Result<String> {
+    let pairs: Vec<baileys_core::signal::ValidatedUserPair> = serde_json::from_str(&pairs_json)
+        .map_err(|e| napi::Error::from_reason(format!("Invalid ValidatedUserPair JSON: {}", e)))?;
+    let batch = baileys_core::signal::build_lid_db_batch(&pairs);
+    serde_json::to_string(&batch)
+        .map_err(|e| napi::Error::from_reason(e.to_string()))
+}
+
+#[napi(object)]
+pub struct NapiGroupEncryptResult {
+    pub ciphertext: Buffer,
+    pub record_json: String,
+}
+
+#[napi(object)]
+pub struct NapiGroupDecryptResult {
+    pub plaintext: Buffer,
+    pub record_json: String,
+}
+
+#[napi(object)]
+pub struct NapiGroupCreateResult {
+    pub skdm_bytes: Buffer,
+    pub record_json: String,
+}
+
+#[napi]
+pub fn signal_group_cipher_encrypt(
+    record_json: String,
+    padded_plaintext: Buffer,
+) -> Result<NapiGroupEncryptResult> {
+    let mut record = baileys_core::signal::SenderKeyRecord::deserialize_from_json(&record_json)
+        .map_err(|e| napi::Error::from_reason(e))?;
+
+    let ct = baileys_core::signal::GroupCipher::encrypt(&mut record, &padded_plaintext)
+        .map_err(|e| napi::Error::from_reason(e))?;
+
+    let serialized = serde_json::to_string(&record.serialize())
+        .map_err(|e| napi::Error::from_reason(e.to_string()))?;
+
+    Ok(NapiGroupEncryptResult {
+        ciphertext: Buffer::from(ct),
+        record_json: serialized,
+    })
+}
+
+#[napi]
+pub fn signal_group_cipher_decrypt(
+    record_json: String,
+    sender_key_message_bytes: Buffer,
+) -> Result<NapiGroupDecryptResult> {
+    let mut record = baileys_core::signal::SenderKeyRecord::deserialize_from_json(&record_json)
+        .map_err(|e| napi::Error::from_reason(e))?;
+
+    let pt = baileys_core::signal::GroupCipher::decrypt(&mut record, &sender_key_message_bytes)
+        .map_err(|e| napi::Error::from_reason(e))?;
+
+    let serialized = serde_json::to_string(&record.serialize())
+        .map_err(|e| napi::Error::from_reason(e.to_string()))?;
+
+    Ok(NapiGroupDecryptResult {
+        plaintext: Buffer::from(pt),
+        record_json: serialized,
+    })
+}
+
+#[napi]
+pub fn signal_group_session_builder_process(
+    record_json: String,
+    skdm_bytes: Buffer,
+) -> Result<String> {
+    let mut record = baileys_core::signal::SenderKeyRecord::deserialize_from_json(&record_json)
+        .map_err(|e| napi::Error::from_reason(e))?;
+
+    let skdm = baileys_core::signal::SenderKeyDistributionMessage::from_serialized(&skdm_bytes)
+        .map_err(|e| napi::Error::from_reason(e))?;
+
+    baileys_core::signal::GroupSessionBuilder::process(&mut record, &skdm);
+
+    serde_json::to_string(&record.serialize())
+        .map_err(|e| napi::Error::from_reason(e.to_string()))
+}
+
+#[napi]
+pub fn signal_group_session_builder_create(
+    record_json: String,
+) -> Result<NapiGroupCreateResult> {
+    let mut record = baileys_core::signal::SenderKeyRecord::deserialize_from_json(&record_json)
+        .map_err(|e| napi::Error::from_reason(e))?;
+
+    let skdm = baileys_core::signal::GroupSessionBuilder::create(&mut record)
+        .map_err(|e| napi::Error::from_reason(e))?;
+
+    let serialized = serde_json::to_string(&record.serialize())
+        .map_err(|e| napi::Error::from_reason(e.to_string()))?;
+
+    Ok(NapiGroupCreateResult {
+        skdm_bytes: Buffer::from(skdm.serialized()),
+        record_json: serialized,
+    })
+}
+
+#[napi]
+pub fn signal_session_record_roundtrip(json_str: String) -> Result<String> {
+    let record = baileys_core::signal::SessionRecord::deserialize_json(&json_str)
+        .map_err(|e| napi::Error::from_reason(e))?;
+    record.serialize_json().map_err(|e| napi::Error::from_reason(e))
+}
+
+#[napi]
+pub fn signal_session_record_have_open_session(json_str: String) -> Result<bool> {
+    let record = baileys_core::signal::SessionRecord::deserialize_json(&json_str)
+        .map_err(|e| napi::Error::from_reason(e))?;
+    Ok(record.have_open_session())
+}
+
+#[napi]
+pub fn signal_session_record_get_registration_id(json_str: String) -> Result<Option<u32>> {
+    let record = baileys_core::signal::SessionRecord::deserialize_json(&json_str)
+        .map_err(|e| napi::Error::from_reason(e))?;
+    Ok(record.get_open_session().map(|s| s.registration_id))
+}
+
+#[napi(object)]
+pub struct NapiSessionEncryptResult {
+    pub ciphertext: Buffer,
+    pub record_json: String,
+}
+
+#[napi(object)]
+pub struct NapiSessionDecryptResult {
+    pub plaintext: Buffer,
+    pub record_json: String,
+}
+
+#[napi]
+pub fn signal_session_cipher_encrypt(
+    record_json: String,
+    our_identity_pub: Buffer,
+    plaintext: Buffer,
+) -> Result<NapiSessionEncryptResult> {
+    let mut record = baileys_core::signal::SessionRecord::deserialize_json(&record_json)
+        .map_err(|e| napi::Error::from_reason(e))?;
+
+    let ciphertext = baileys_core::signal::SessionCipher::encrypt(
+        &mut record,
+        our_identity_pub.as_ref(),
+        plaintext.as_ref(),
+    ).map_err(|e| napi::Error::from_reason(e))?;
+
+    let updated_json = record.serialize_json().map_err(|e| napi::Error::from_reason(e))?;
+
+    Ok(NapiSessionEncryptResult {
+        ciphertext: Buffer::from(ciphertext),
+        record_json: updated_json,
+    })
+}
+
+#[napi]
+pub fn signal_session_cipher_decrypt_whisper_message(
+    record_json: String,
+    our_identity_pub: Buffer,
+    data: Buffer,
+) -> Result<NapiSessionDecryptResult> {
+    let mut record = baileys_core::signal::SessionRecord::deserialize_json(&record_json)
+        .map_err(|e| napi::Error::from_reason(e))?;
+
+    let plaintext = baileys_core::signal::SessionCipher::decrypt_whisper_message(
+        &mut record,
+        our_identity_pub.as_ref(),
+        data.as_ref(),
+    ).map_err(|e| napi::Error::from_reason(e))?;
+
+    let updated_json = record.serialize_json().map_err(|e| napi::Error::from_reason(e))?;
+
+    Ok(NapiSessionDecryptResult {
+        plaintext: Buffer::from(plaintext),
+        record_json: updated_json,
+    })
+}
+
+#[napi(object)]
+pub struct NapiProcessPkmsgResult {
+    pub plaintext: Buffer,
+    pub record_json: String,
+    pub pre_key_id: Option<u32>,
+}
+
+#[napi(object)]
+pub struct NapiInitOutgoingResult {
+    pub base_key: Buffer,
+    pub record_json: String,
+}
+
+#[napi]
+pub fn signal_session_builder_process_incoming_pkmsg(
+    record_json: String,
+    our_identity_priv: Buffer,
+    our_identity_pub: Buffer,
+    our_signed_pre_key_priv: Buffer,
+    our_signed_pre_key_pub: Buffer,
+    our_pre_key_priv: Option<Buffer>,
+    pkmsg_data: Buffer,
+) -> Result<NapiProcessPkmsgResult> {
+    let mut record = baileys_core::signal::SessionRecord::deserialize_json(&record_json)
+        .map_err(|e| napi::Error::from_reason(e))?;
+
+    let pre_key_slice = our_pre_key_priv.as_ref().map(|b| b.as_ref());
+
+    let res = baileys_core::signal::SessionBuilder::process_incoming_pkmsg(
+        &mut record,
+        our_identity_priv.as_ref(),
+        our_identity_pub.as_ref(),
+        our_signed_pre_key_priv.as_ref(),
+        our_signed_pre_key_pub.as_ref(),
+        pre_key_slice,
+        pkmsg_data.as_ref(),
+    ).map_err(|e| napi::Error::from_reason(e))?;
+
+    let updated_json = record.serialize_json().map_err(|e| napi::Error::from_reason(e))?;
+
+    Ok(NapiProcessPkmsgResult {
+        plaintext: Buffer::from(res.plaintext),
+        record_json: updated_json,
+        pre_key_id: res.pre_key_id,
+    })
+}
+
+#[napi]
+pub fn signal_session_builder_init_outgoing(
+    record_json: String,
+    our_identity_priv: Buffer,
+    registration_id: u32,
+    identity_key: Buffer,
+    signed_pre_key_id: u32,
+    signed_pre_key_public: Buffer,
+    signed_pre_key_signature: Buffer,
+    pre_key_id: Option<u32>,
+    pre_key_public: Option<Buffer>,
+) -> Result<NapiInitOutgoingResult> {
+    let mut record = baileys_core::signal::SessionRecord::deserialize_json(&record_json)
+        .map_err(|e| napi::Error::from_reason(e))?;
+
+    let bundle = baileys_core::signal::PreKeyBundle {
+        registration_id,
+        identity_key: identity_key.as_ref().to_vec(),
+        signed_pre_key_id,
+        signed_pre_key_public: signed_pre_key_public.as_ref().to_vec(),
+        signed_pre_key_signature: signed_pre_key_signature.as_ref().to_vec(),
+        pre_key_id,
+        pre_key_public: pre_key_public.map(|b| b.as_ref().to_vec()),
+    };
+
+    let base_key = baileys_core::signal::SessionBuilder::init_outgoing_session(
+        &mut record,
+        our_identity_priv.as_ref(),
+        &bundle,
+    ).map_err(|e| napi::Error::from_reason(e))?;
+
+    let updated_json = record.serialize_json().map_err(|e| napi::Error::from_reason(e))?;
+
+    Ok(NapiInitOutgoingResult {
+        base_key: Buffer::from(base_key),
+        record_json: updated_json,
+    })
+}
+
+#[napi]
+pub fn signal_session_builder_build_pkmsg_envelope(
+    our_identity_pub: Buffer,
+    our_registration_id: u32,
+    base_key: Buffer,
+    signed_pre_key_id: u32,
+    pre_key_id: Option<u32>,
+    inner_whisper_message: Buffer,
+) -> Result<Buffer> {
+    let pkmsg = baileys_core::signal::SessionBuilder::build_pkmsg_envelope(
+        our_identity_pub.as_ref(),
+        our_registration_id,
+        base_key.as_ref(),
+        signed_pre_key_id,
+        pre_key_id,
+        inner_whisper_message.as_ref(),
+    ).map_err(|e| napi::Error::from_reason(e))?;
+
+    Ok(Buffer::from(pkmsg))
+}
+
+#[napi]
 pub fn version() -> String {
     format!("auriel-baileys-core v{}", baileys_core::version())
 }
