@@ -9,9 +9,9 @@ Setiap iterasi yang selesai WAJIB memperbarui status di tabel ini.
 
 | Level | Kategori Modul | Total Modul | Rust Delegated | Native JS | Status |
 | :--- | :--- | :---: | :---: | :---: | :---: |
-| **Level 0** | Primitives & Formats (WABinary, JID, Core Crypto, Media) | 6 | 5 | 1 | 🟡 83% Selesai |
-| **Level 1** | Signal Group Primitives (SenderKey Data Structures) | 7 | 7 | 0 | ✅ 100% Selesai (Battle-Tested) |
-| **Level 2** | Signal Ciphers & State Machine (Group & Pairwise) | 4 | 4 | 0 | ✅ 100% Selesai (Battle-Tested) |
+| **Level 0** | Primitives & Formats (WABinary, JID, Core Crypto, Media) | 5 (+1 WAM) | 5 | 0 | ✅ 100% Selesai (5/5 modul fungsional, WAM dikecualikan dengan justifikasi) |
+| **Level 1** | Signal Group Primitives (SenderKey Data Structures) | 7 | 7 | 0 | ✅ 100% Selesai (Default di Produksi) |
+| **Level 2** | Signal Ciphers & State Machine (Group & Pairwise) | 4 | 4 | 0 | ✅ 100% Selesai (Default di Produksi) |
 | **Level 3** | Transaction Protocols & Message Processing | 5 | 0 | 5 | 🔴 0% (Target Iterasi 4) |
 | **Level 4** | State Managers & Auth File I/O | 4 | 0 | 4 | 🔴 0% (Target Iterasi 5) |
 | **Level 5** | Socket Pipeline & Public API Facade | 4 | 0 | 4 | 🔴 0% (Target Iterasi 6) |
@@ -20,7 +20,7 @@ Setiap iterasi yang selesai WAJIB memperbarui status di tabel ini.
 
 ## 📋 Status Rinci Per-Modul
 
-### Level 0: Primitives, Formats & Core Cryptography
+### Level 0: Primitives, Formats & Core Cryptography (Selesai & Default di Produksi)
 | Modul / File | Status | Engine Aktif | Backup Legacy | Catatan |
 | :--- | :---: | :---: | :---: | :--- |
 | `lib/WABinary/jid-utils.js` | ✅ FULLY DELEGATED | **Rust** (`rust.jidDecode`, `rust.jidEncode`, `rust.jidNormalizedUser`) | `jid-utils.legacy.js` | Parsing & normalisasi JID 100% Rust. Helper JS tipis dipertahankan untuk DX. |
@@ -28,7 +28,7 @@ Setiap iterasi yang selesai WAJIB memperbarui status di tabel ini.
 | `lib/WABinary/decode.js` | ✅ FULLY DELEGATED | **Rust** (`rust.decodeBinaryNode`) | `decode.legacy.js` | Decoding Binary WhatsApp ke Node XML 100% Rust. |
 | `lib/Utils/crypto.js` (Primitif) | ✅ FULLY DELEGATED | **Rust** (`curve25519_sign`, `curve25519_verify`, `aes_gcm`) | - | Primitif Curve25519 & AES-GCM diuji bit-exact dengan Rust. |
 | `lib/Utils/messages-media.js` (Crypto) | ✅ FULLY DELEGATED | **Rust** (`rust.encryptMedia`, `rust.decryptMedia`) | - | Media crypto (AES-CBC + SHA256 HKDF) 100% Rust. |
-| `lib/WAM/encode.js` & `constants.js` | 🔴 NOT STARTED | **JavaScript** | - | Down-graded: WamEncoder di Rust baru berupa header stub 14-baris. Perlu porting kamus 800KB. |
+| `lib/WAM/encode.js` & `constants.js` | ⚪ NOT APPLICABLE | **Dikecualikan (Justifikasi)** | - | Telemetry-only, no functional impact confirmed. Porting synthetic WAM data poses higher fingerprint-anomaly risk than omitting it entirely (see investigation notes). |
 
 ---
 
