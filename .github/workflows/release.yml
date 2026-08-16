@@ -30,29 +30,21 @@ jobs:
             artifact_name: linux-x64-gnu
             test_local: true
 
-          # 3. Linux x64 musl (Alpine Linux / Docker)
-          - os: ubuntu-latest
-            target: x86_64-unknown-linux-musl
-            output_name: baileys-napi.linux-x64-musl.node
-            artifact_name: linux-x64-musl
-            test_local: false
-            setup_musl: true
-
-          # 4. macOS Intel x64 (Cross-compiled via Apple Clang on macos-latest)
+          # 3. macOS Intel x64 (Cross-compiled via Apple Clang on macos-latest)
           - os: macos-latest
             target: x86_64-apple-darwin
             output_name: baileys-napi.darwin-x64.node
             artifact_name: darwin-x64
             test_local: false
 
-          # 5. macOS Apple Silicon ARM64 (M1/M2/M3/M4)
+          # 4. macOS Apple Silicon ARM64 (M1/M2/M3/M4)
           - os: macos-latest
             target: aarch64-apple-darwin
             output_name: baileys-napi.darwin-arm64.node
             artifact_name: darwin-arm64
             test_local: true
 
-          # 6. Linux ARM64 glibc (Raspberry Pi / ARM VPS)
+          # 5. Linux ARM64 glibc (Raspberry Pi / ARM VPS)
           - os: ubuntu-latest
             target: aarch64-unknown-linux-gnu
             output_name: baileys-napi.linux-arm64-gnu.node
@@ -69,16 +61,11 @@ jobs:
         with:
           node-version: 20
 
-      - name: Install System Cross-Toolchains (musl / aarch64)
-        if: runner.os == 'Linux' && (matrix.setup_musl || matrix.setup_aarch64)
+      - name: Install System Cross-Toolchains (aarch64)
+        if: runner.os == 'Linux' && matrix.setup_aarch64
         run: |
           sudo apt-get update
-          if [ "${{ matrix.setup_musl }}" = "true" ]; then
-            sudo apt-get install -y musl-tools musl-dev
-          fi
-          if [ "${{ matrix.setup_aarch64 }}" = "true" ]; then
-            sudo apt-get install -y gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
-          fi
+          sudo apt-get install -y gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
 
       - name: Install Rust Toolchain (${{ matrix.target }})
         uses: dtolnay/rust-toolchain@stable
@@ -90,12 +77,10 @@ jobs:
 
       - name: Build Native Addon (Release)
         env:
-          RUSTFLAGS: ${{ runner.os == 'macOS' && '-C link-arg=-undefined -C link-arg=dynamic_lookup' || (matrix.setup_musl && '-C target-feature=-crt-static' || '') }}
+          RUSTFLAGS: ${{ runner.os == 'macOS' && '-C link-arg=-undefined -C link-arg=dynamic_lookup' || '' }}
           CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: ${{ matrix.setup_aarch64 && 'aarch64-linux-gnu-gcc' || '' }}
           CC_aarch64_unknown_linux_gnu: ${{ matrix.setup_aarch64 && 'aarch64-linux-gnu-gcc' || '' }}
           CXX_aarch64_unknown_linux_gnu: ${{ matrix.setup_aarch64 && 'aarch64-linux-gnu-g++' || '' }}
-          CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER: ${{ matrix.setup_musl && 'musl-gcc' || '' }}
-          CC_x86_64_unknown_linux_musl: ${{ matrix.setup_musl && 'musl-gcc' || '' }}
         run: cargo build --manifest-path rust/Cargo.toml --package baileys-napi --release --target ${{ matrix.target }}
 
       - name: Prepare Binary Artifact
