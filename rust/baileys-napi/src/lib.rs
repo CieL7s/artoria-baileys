@@ -289,11 +289,23 @@ pub fn build_usync_query_node(
     mode: Option<String>,
     context: Option<String>,
 ) -> Result<JsNodePayload> {
-    let (id, node) = baileys_core::usync::USyncBuilder::build_query(
-        &users,
-        &protocols,
-        &mode.unwrap_or_else(|| "interactive".to_string()),
+    let id = baileys_core::message::generate_message_id();
+    let user_dtos: Vec<baileys_core::usync::USyncUserDTO> = users.into_iter().map(|u| baileys_core::usync::USyncUserDTO {
+        id: Some(u),
+        lid: None,
+        phone: None,
+        username: None,
+        username_key: None,
+        r#type: None,
+        persona_id: None,
+    }).collect();
+
+    let node = baileys_core::usync::USyncQueryEngine::build_query(
         &context.unwrap_or_else(|| "interactive".to_string()),
+        &mode.unwrap_or_else(|| "query".to_string()),
+        &user_dtos,
+        &protocols,
+        &id,
     );
     let node_json = serde_json::to_string(&node).map_err(|e| napi::Error::from_reason(e.to_string()))?;
     Ok(JsNodePayload { id, node_json })
@@ -1092,6 +1104,48 @@ pub fn signal_session_builder_build_pkmsg_envelope(
     ).map_err(|e| napi::Error::from_reason(e))?;
 
     Ok(Buffer::from(pkmsg))
+}
+
+#[napi]
+pub fn usync_build_query(
+    context: String,
+    mode: String,
+    users_json: String,
+    protocols_json: String,
+    message_id: String,
+) -> Result<String> {
+    let users: Vec<baileys_core::usync::USyncUserDTO> = serde_json::from_str(&users_json)
+        .map_err(|e| napi::Error::from_reason(format!("Invalid users JSON: {}", e)))?;
+    let protocols: Vec<String> = serde_json::from_str(&protocols_json)
+        .map_err(|e| napi::Error::from_reason(format!("Invalid protocols JSON: {}", e)))?;
+
+    let root = baileys_core::usync::USyncQueryEngine::build_query(
+        &context,
+        &mode,
+        &users,
+        &protocols,
+        &message_id,
+    );
+
+    serde_json::to_string(&root)
+        .map_err(|e| napi::Error::from_reason(format!("Failed to serialize query node: {}", e)))
+}
+
+#[napi]
+pub fn usync_parse_query_result(
+    iq_result_json: String,
+    protocols_json: String,
+) -> Result<String> {
+    let result_node: baileys_core::protocol::BinaryNode = serde_json::from_str(&iq_result_json)
+        .map_err(|e| napi::Error::from_reason(format!("Invalid result node JSON: {}", e)))?;
+    let protocols: Vec<String> = serde_json::from_str(&protocols_json)
+        .map_err(|e| napi::Error::from_reason(format!("Invalid protocols JSON: {}", e)))?;
+
+    let res = baileys_core::usync::USyncQueryEngine::parse_query_result(&result_node, &protocols)
+        .ok_or_else(|| napi::Error::from_reason("Failed to parse USync query result: invalid or missing usync node"))?;
+
+    serde_json::to_string(&res)
+        .map_err(|e| napi::Error::from_reason(format!("Failed to serialize query result: {}", e)))
 }
 
 #[napi]

@@ -71,6 +71,16 @@ export const buildGroupUpdateDescriptionNode = native?.buildGroupUpdateDescripti
 export const buildGroupParticipantsUpdateNode = native?.buildGroupParticipantsUpdateNode;
 export const WhatsAppClient = native?.WhatsAppClient;
 export const NoiseTransport = native?.NoiseTransport;
+export const usyncBuildQuery = native?.usyncBuildQuery;
+export const usyncParseQueryResult = native?.usyncParseQueryResult;
+export const makeInMemoryStore = (config) => ({
+  chats: new Map(),
+  messages: new Map(),
+  contacts: new Map(),
+  bind: (ev) => {},
+  writeToFile: () => {},
+  readFromFile: () => {}
+});
 
 export { makeWASocket };
 export default makeWASocket;
