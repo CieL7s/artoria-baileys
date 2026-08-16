@@ -36,7 +36,7 @@ jobs:
             output_name: baileys-napi.linux-x64-musl.node
             artifact_name: linux-x64-musl
             test_local: false
-            setup_musl: true
+            use_cross: true
 
           # 4. macOS Intel x64 (Cross-compiled via Apple Clang on macos-latest)
           - os: macos-latest
@@ -69,21 +69,20 @@ jobs:
         with:
           node-version: 20
 
-      - name: Install System Cross-Toolchains (musl / aarch64)
-        if: runner.os == 'Linux' && (matrix.setup_musl || matrix.setup_aarch64)
+      - name: Install System Cross-Toolchains (aarch64)
+        if: runner.os == 'Linux' && matrix.setup_aarch64
         run: |
           sudo apt-get update
-          if [ "${{ matrix.setup_musl }}" = "true" ]; then
-            sudo apt-get install -y musl-tools
-          fi
-          if [ "${{ matrix.setup_aarch64 }}" = "true" ]; then
-            sudo apt-get install -y gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
-          fi
+          sudo apt-get install -y gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
 
       - name: Install Rust Toolchain (${{ matrix.target }})
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
+
+      - name: Install cross (for musl target)
+        if: matrix.use_cross == true
+        uses: taiki-e/install-action@cross
 
       - name: Install Node Dependencies
         run: npm install --no-audit --no-fund
@@ -94,9 +93,13 @@ jobs:
           CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: ${{ matrix.setup_aarch64 && 'aarch64-linux-gnu-gcc' || '' }}
           CC_aarch64_unknown_linux_gnu: ${{ matrix.setup_aarch64 && 'aarch64-linux-gnu-gcc' || '' }}
           CXX_aarch64_unknown_linux_gnu: ${{ matrix.setup_aarch64 && 'aarch64-linux-gnu-g++' || '' }}
-          CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER: ${{ matrix.setup_musl && 'musl-gcc' || '' }}
-          CC_x86_64_unknown_linux_musl: ${{ matrix.setup_musl && 'musl-gcc' || '' }}
-        run: cargo build --manifest-path rust/Cargo.toml --package baileys-napi --release --target ${{ matrix.target }}
+        shell: bash
+        run: |
+          if [ "${{ matrix.use_cross }}" = "true" ]; then
+            cross build --manifest-path rust/Cargo.toml --package baileys-napi --release --target ${{ matrix.target }}
+          else
+            cargo build --manifest-path rust/Cargo.toml --package baileys-napi --release --target ${{ matrix.target }}
+          fi
 
       - name: Prepare Binary Artifact
         shell: bash
