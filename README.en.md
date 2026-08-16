@@ -4,7 +4,7 @@
 
 # 🌸 Artoria-Baileys
 
-[![Version](https://img.shields.io/badge/version-0.6.0-blue.svg)](https://github.com/CieL7s/artoria-baileys)
+[![Version](https://img.shields.io/badge/version-0.6.1-blue.svg)](https://github.com/CieL7s/artoria-baileys)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Rust Native Engine](https://img.shields.io/badge/Rust-baileys--core-orange.svg)](https://www.rust-lang.org/)
 [![Node.js N-API](https://img.shields.io/badge/Node.js-N--API-green.svg)](https://nodejs.org/)
@@ -20,12 +20,12 @@
 
 ### Why is it Different from Standard Baileys?
 - **Native Performance Without Garbage Collection Overhead**: CPU-intensive operations such as WhatsApp Binary XML node serialization, HKDF key derivation, HMAC-SHA256 ratchet hashing, XEd25519 signature verification, multi-layer Protobuf unwrapping, and AES-256-GCM decryption execute directly in native Rust via an N-API bridge without blocking the JavaScript V8 event loop.
-- **Level 0–3 Fully Native in Rust (v0.6.0)**: The entire E2EE cryptography pipeline (*pairwise Double Ratchet* and *SenderKey group protocol*), USync multi-protocol query engine, addressing context resolution (`LID` vs `PN`), App State Sync, and incoming message state processing run native-first by default.
+- **Level 0–3 Fully Native in Rust (v0.6.1)**: The entire E2EE cryptography pipeline (*pairwise Double Ratchet* and *SenderKey group protocol*), USync multi-protocol query engine, addressing context resolution (`LID` vs `PN`), App State Sync, and incoming message state processing run native-first by default.
 - **100% Drop-In Compatible**: Retains the exact public API, TypeScript definitions, and event structures of `@whiskeysockets/baileys`. You can switch packages with a simple import path update without altering your application's business logic.
 
 ---
 
-## 2. 📊 Architecture Migration Status (v0.6.0)
+## 2. 📊 Architecture Migration Status (v0.6.1)
 
 We uphold a policy of **complete architectural transparency**. Below is the current migration and delegation matrix:
 
@@ -75,6 +75,8 @@ Artoria-Baileys proves its correctness through a 5-layer empirical verification 
    - Explicit verification that tampered AAD in poll votes (e.g. swapped voter JID) or corrupted secret keys **always fail decryption with explicit errors**, preventing garbage state ingestion.
 5. **Offline Catch-Up Spam-Loop Prevention**:
    - Validates that offline batch catch-up stanzas (`offline="1"`) are strictly classified as `'append'` (never `'notify'`), preventing bots from firing auto-responders against historical messages upon reconnect.
+6. **Comprehensive & Transparent Performance Benchmark**:
+   - 📊 See the comprehensive, honest performance benchmark (including cases where Pure JS is faster) in [`BENCHMARK.md`](BENCHMARK.md).
 
 > [!WARNING]
 > **Security Disclaimer**: All modules across Level 0 through Level 3 have been mathematically and empirically verified bit-exact against the Signal Protocol and WhatsApp Web specifications. However, this library is an independent implementation and has not undergone third-party security audits. Please test thoroughly in your staging environment before deploying to critical production workloads.
@@ -326,7 +328,7 @@ artoria-baileys/
 ## 10. 📜 Credits & License
 
 - **Ecosystem Base**: This project builds upon the foundational architecture of [`@whiskeysockets/baileys`](https://github.com/WhiskeySockets/Baileys). We express deep gratitude to all Baileys community contributors for their reverse-engineering research on the WhatsApp protocol.
-- **License**: Released under the **[MIT License](file:///c:/Users/ASUS/Documents/Project/baileys-onrust%20-%20Copy/LICENSE)** — free for both commercial and personal use.
+- **License**: Released under the **[MIT License](LICENSE)** — free for both commercial and personal use.
 - **Community & Discussions**: If you encounter issues or wish to discuss technical topics, please open a [GitHub Issue](https://github.com/CieL7s/artoria-baileys/issues) or [Discussion](https://github.com/CieL7s/artoria-baileys/discussions).
 
 ---

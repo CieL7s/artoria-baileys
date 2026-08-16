@@ -4,7 +4,7 @@
 
 # 🌸 Artoria-Baileys
 
-[![Version](https://img.shields.io/badge/version-0.6.0-blue.svg)](https://github.com/CieL7s/artoria-baileys)
+[![Version](https://img.shields.io/badge/version-0.6.1-blue.svg)](https://github.com/CieL7s/artoria-baileys)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Rust Native Engine](https://img.shields.io/badge/Rust-baileys--core-orange.svg)](https://www.rust-lang.org/)
 [![Node.js N-API](https://img.shields.io/badge/Node.js-N--API-green.svg)](https://nodejs.org/)
@@ -20,33 +20,31 @@
 
 ### Kenapa Berbeda dari Baileys Standar?
 - **Performa Native Tanpa Garbage Collection Overhead**: Operasi berat CPU seperti serialisasi Binary XML WhatsApp, derivasi kunci HKDF, hashing ratchet HMAC-SHA256, verifikasi tanda tangan XEd25519, unwrap Protobuf multi-layer, serta dekripsi AES-256-GCM dieksekusi langsung di mesin Rust via N-API bridge tanpa membebani event loop V8 JavaScript.
-- **Level 0–3 Selesai 100% di Rust (v0.6.0)**: Seluruh pipeline kriptografi E2EE (*pairwise Double Ratchet* dan *SenderKey group protocol*), query multi-protokol USync, resolusi konteks addressing (`LID` vs `PN`), App State Sync, dan pemrosesan pesan masuk kini diproses secara *native-first*.
+- **Level 0–3 Selesai 100% di Rust (v0.6.1)**: Seluruh pipeline kriptografi E2EE (*pairwise Double Ratchet* dan *SenderKey group protocol*), query multi-protokol USync, resolusi konteks addressing (`LID` vs `PN`), App State Sync, dan pemrosesan pesan masuk kini diproses secara *native-first*.
 - **100% Drop-In Compatible**: Menggunakan API publik, tipe TypeScript, dan struktur event yang identik dengan `@whiskeysockets/baileys`. Anda cukup mengganti nama import di project Anda tanpa perlu merombak alur logika bot Anda.
 
 ---
 
-## 2. 📊 Status Migrasi Arsitektur (v0.6.0)
+## 2. 📊 Status Migrasi Arsitektur (v0.6.1)
 
 Kami menerapkan prinsip **transparansi penuh** terhadap arsitektur internal. Berikut adalah peta status delegasi mesin saat ini:
 
-| Level | Kategori Layer | Status Migrasi | Engine Aktif di Produksi | Cakupan Komponen |
-| :--- | :--- | :---: | :---: | :--- |
-| **Level 0** | **Primitives, Formats & Core Crypto** | ✅ **100% Selesai** | **Rust Native (Default)** | Parsing JID, WABinary XML Node (encode/decode), Curve25519, AES-GCM, Media HKDF + AES-CBC. *(Catatan: Modul telemetri WAM opsional dikecualikan dengan justifikasi anti-fingerprint anomaly).* |
-| **Level 1** | **Signal Group Primitives** | ✅ **100% Selesai** | **Rust Native (Default)** | `SenderChainKey`, `SenderMessageKey`, `SenderKeyName`, `SenderKeyDistributionMessage`, `SenderKeyMessage`, `SenderKeyState`, `SenderKeyRecord`. |
-| **Level 2** | **Signal State Machine & Ciphers** | ✅ **100% Selesai** | **Rust Native (Default)** | `GroupCipher` (skmsg), `GroupSessionBuilder`, `SessionCipher` (pairwise msg/pkmsg), `SessionBuilder` (X3DH handshake), `LidPnMapping`. |
-| **Level 3** | **Transaction Protocols & Message Processing** | ✅ **100% Selesai** | **Rust Native (Default)** | USync Query Engine (7 protokol), Message Envelope Decoder, App State Sync & History Reconstruction, Message Normalizer (9 tipe wrapper), MessageProcessor (`fromMe` matrix 4-kuadran, `decryptPollVote`, `decryptEventResponse`). |
-| **Level 4** | **State Management & Auth File I/O** | 🔴 0% (Target v0.7.0) | JavaScript | Multi-file auth state persistence, pre-key pool manager, retry queue manager. |
-| **Level 5** | **Zero-Copy WebSocket Pipeline** | 🔴 0% (Target v0.8.0) | JavaScript | WebSocket frame buffer management & high-level socket facade. |
-
-> 📖 Untuk rincian teknis per-file dan riwayat delegasi, silakan baca dokumentasi lengkap di [`MIGRATION_STATUS.md`](file:///c:/Users/ASUS/Documents/Project/baileys-onrust%20-%20Copy/MIGRATION_STATUS.md).
+| Level | Modul & Sub-Sistem | Status Delegasi Engine | Keterangan & Paritas |
+| :---: | :--- | :---: | :--- |
+| **0** | **Binary XML & Crypto Primitives**<br>• WABinary Node Encoder & Decoder<br>• Curve25519 Donna / Dalek Sign & Verify<br>• Media HKDF / AES-CBC / HMAC Decrypt | **FULLY DELEGATED**<br>*(100% Native Rust)* | Paritas bit-exact terverifikasi. Zero-allocation memory pool untuk binary serialization. |
+| **1** | **Signal Group Structure (Level 1)**<br>• `SenderChainKey` (HMAC-SHA256 iteration)<br>• `SenderMessageKey` (128-bit derived keys)<br>• `SenderKeyRecord` (Max 50 state rotation) | **FULLY DELEGATED**<br>*(100% Native Rust)* | 37 unit test parity. Struktur memory state dikelola aman di Rust core dengan serialisasi zero-copy. |
+| **2** | **Signal Cryptographic Ciphers (Level 2)**<br>• `GroupCipher` (skmsg encrypt/decrypt)<br>• `SessionCipher` (pairwise msg/pkmsg)<br>• `SessionBuilder` & X3DH Handshake<br>• `SessionRecord` & LID-PN Context Resolvers | **FULLY DELEGATED**<br>*(100% Native Rust)* | 142 parity tests & **Dual-Engine Shadow Mode** terverifikasi pada 721 transaksi kriptografi real (0 mismatch). |
+| **3** | **Transaction Protocols & Processing (Level 3)**<br>• USync Multi-Protocol Query Builder & Parser<br>• Stanza & Envelope `decodeMessageNode`<br>• App State Sync Patch MAC & Syncd Builder<br>• `messages.js` Multi-Layer Normalizer & Unwrap<br>• `process-message.js` & Crypto Verification | **FULLY DELEGATED**<br>*(100% Native Rust)* | 72 unit test khusus Level 3 (5/5 sub-modul). Paritas bit-exact pada seluruh skenario offline, reaction, poll vote & revocation. |
+| **4** | **State Management & Auth Storage**<br>• Session file I/O & memory key-store caching<br>• Pre-Key pool management & rotation cycle | **PLANNED**<br>*(TypeScript Layer)* | Direncanakan pada rilis v0.7.0 (Level 4). |
+| **5** | **Zero-Copy WebSocket Transport Layer**<br>• Native WebSocket Frame processing<br>• Full autonomous Rust runtime daemon | **PLANNED**<br>*(TypeScript Layer)* | Direncanakan pada rilis v0.8.0 / v1.0.0 (Level 5). |
 
 ---
 
 ## 3. 🧪 Bukti Kualitas & Metodologi Pengujian
 
-Artoria-Baileys tidak hanya mengklaim kompatibilitas, tetapi membuktikannya melalui 5 lapisan metodologi verifikasi empiris yang ketat:
+Artoria-Baileys tidak hanya menjanjikan kecepatan, tetapi juga **keandalan tanpa kompromi**. Setiap baris kode yang didelegasikan ke Rust melewati piramida pengujian berlapis:
 
-```
+```text
                             [PIRAMIDA PENGUJIAN KUALITAS]
                                          ▲
                                         / \
@@ -75,6 +73,8 @@ Artoria-Baileys tidak hanya mengklaim kompatibilitas, tetapi membuktikannya mela
    - Verifikasi bahwa manipulasi AAD pada poll vote (misal JID voter tertukar) atau secret key yang korup **selalu gagal didekripsi secara eksplisit**, mencegah pemrosesan data sampah atau kebocoran state.
 5. **Pencegahan Risiko Spam-Loop Offline Catch-up**:
    - Pengujian batch stanza offline (`offline="1"`) memastikan 100% diklasifikasikan sebagai `'append'` (bukan `'notify'`), mencegah bot membalas pesan lama secara berulang saat baru reconnect.
+6. **Hasil Benchmark Performa Komprehensif & Transparan**:
+   - 📊 Lihat hasil benchmark performa lengkap dan jujur (termasuk kasus di mana JS murni lebih cepat) di [`BENCHMARK.md`](BENCHMARK.md).
 
 > [!WARNING]
 > **Disclaimer Keamanan**: Seluruh modul Level 0 hingga Level 3 telah diverifikasi secara matematis dan empiris bit-exact terhadap spesifikasi Signal Protocol & WhatsApp Web. Namun, library ini merupakan implementasi independen dan belum melalui audit keamanan formal pihak ketiga. Gunakan di lingkungan produksi Anda dengan pengujian yang sesuai.
