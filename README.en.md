@@ -85,9 +85,15 @@ Artoria-Baileys proves its correctness through a 5-layer empirical verification 
 
 ### Requirements
 - **Node.js**: Version `18.0.0` LTS or higher (ESM support).
-- **Supported Operating Systems**:
-  - **Windows x64**: Prebuilt native binary (`baileys-napi.node`) is bundled directly. Works out of the box with zero compiler toolchain required.
-  - **Linux x64 / macOS (Intel & Apple Silicon)**: Can be compiled from source seamlessly with Cargo.
+- **Supported Platforms (Automatic Prebuilt Native Binaries)**:
+  - 🪟 **Windows x64** (`x86_64-pc-windows-msvc`)
+  - 🐧 **Linux x64 glibc** (`x86_64-unknown-linux-gnu` - Ubuntu, Debian, CentOS, AlmaLinux, general VPS)
+  - 🐧 **Linux ARM64 glibc** (`aarch64-unknown-linux-gnu` - Raspberry Pi 4/5, ARM VPS, AWS Graviton)
+  - 🍏 **macOS Apple Silicon** (`aarch64-apple-darwin` - M1/M2/M3/M4)
+  - 🍏 **macOS Intel** (`x86_64-apple-darwin`)
+
+> [!NOTE]
+> All 5 platforms above include **prebuilt native binaries**. Running `npm install artoria-baileys` works instantly out of the box without requiring Rust toolchains or C++ build tools on your target machine.
 
 ### Installation via Package Manager
 
@@ -99,8 +105,8 @@ pnpm add artoria-baileys
 yarn add artoria-baileys
 ```
 
-### Building from Source (Linux / macOS)
-If you are deploying on non-Windows platforms:
+### Building from Source (Optional / Development)
+If you wish to modify the Rust codebase or compile binaries locally:
 ```bash
 # Ensure Rust toolchain is installed (curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh)
 git clone https://github.com/CieL7s/artoria-baileys.git

@@ -85,9 +85,15 @@ Artoria-Baileys tidak hanya mengklaim kompatibilitas, tetapi membuktikannya mela
 
 ### Persyaratan
 - **Node.js**: Versi `18.0.0` LTS ke atas (ESM support).
-- **Sistem Operasi yang Didukung**:
-  - **Windows x64**: Prebuilt binary native (`baileys-napi.node`) sudah disertakan langsung di paket instalasi. Langsung jalan tanpa perlu compiler Rust/C++.
-  - **Linux x64 / macOS (Intel & Apple Silicon)**: Dapat dibangun langsung dari source dengan mudah.
+- **Platform yang Didukung (Prebuilt Native Binary)**:
+  - 🪟 **Windows x64** (`x86_64-pc-windows-msvc`)
+  - 🐧 **Linux x64 glibc** (`x86_64-unknown-linux-gnu` - Ubuntu, Debian, CentOS, AlmaLinux, VPS umum)
+  - 🐧 **Linux ARM64 glibc** (`aarch64-unknown-linux-gnu` - Raspberry Pi 4/5, ARM VPS, AWS Graviton)
+  - 🍏 **macOS Apple Silicon** (`aarch64-apple-darwin` - M1/M2/M3/M4)
+  - 🍏 **macOS Intel** (`x86_64-apple-darwin`)
+
+> [!NOTE]
+> Semua 5 platform di atas didukung dengan **prebuilt native binary** bawaan. `npm install artoria-baileys` langsung berjalan seketika tanpa perlu compiler Rust atau toolchain C++ di server Anda.
 
 ### Instalasi via Package Manager
 
@@ -99,8 +105,8 @@ pnpm add artoria-baileys
 yarn add artoria-baileys
 ```
 
-### Build dari Source (Untuk Linux / macOS)
-Jika Anda menggunakan platform di luar Windows x64:
+### Build dari Source (Opsional / Custom Development)
+Jika Anda ingin memodifikasi kode Rust atau mengompilasi sendiri secara lokal:
 ```bash
 # Pastikan Rust toolchain sudah terpasang (curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh)
 git clone https://github.com/CieL7s/artoria-baileys.git
