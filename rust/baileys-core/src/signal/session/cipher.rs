@@ -159,25 +159,26 @@ impl SessionCipher {
 
         let mut last_err = String::from("No sessions available");
 
-        for (base_key_b64, _) in session_keys {
-            if let Some(session) = record.get_session_mut(&base_key_b64) {
-                match Self::do_decrypt_session(
-                    session,
-                    our_identity_pub,
-                    &remote_ephemeral,
-                    counter,
-                    previous_counter,
-                    &ciphertext,
-                    msg_proto_bytes,
-                    received_mac,
-                ) {
-                    Ok(plaintext) => {
-                        return Ok(plaintext);
-                    }
-                    Err(e) => {
-                        last_err = e;
-                    }
+for (base_key_b64, _) in session_keys {
+            let mut candidate = match record.get_session(&base_key_b64).cloned() {
+                Some(session) => session,
+                None => continue,
+            };
+            match Self::do_decrypt_session(
+                &mut candidate,
+                our_identity_pub,
+                &remote_ephemeral,
+                counter,
+                previous_counter,
+                &ciphertext,
+                msg_proto_bytes,
+                received_mac,
+            ) {
+                Ok(plaintext) => {
+                    record.sessions.insert(base_key_b64, candidate);
+                    return Ok(plaintext);
                 }
+                Err(e) => last_err = e,
             }
         }
 
