@@ -327,7 +327,7 @@ artoria-baileys/
 ## 10. 📜 Kredit & Lisensi
 
 - **Basis Ekosistem**: Proyek ini dibangun di atas fondasi arsitektur hebat dari [`@whiskeysockets/baileys`](https://github.com/WhiskeySockets/Baileys). Kami berterima kasih kepada seluruh kontributor komunitas Baileys atas penelitian rekayasa balik protokol WhatsApp yang luar biasa.
-- **Lisensi**: Proyek ini dilisensikan di bawah **[MIT License](file:///c:/Users/ASUS/Documents/Project/baileys-onrust%20-%20Copy/LICENSE)** — bebas digunakan untuk kebutuhan komersial maupun personal.
+- **Lisensi**: Proyek ini dilisensikan di bawah **[MIT License](LICENSE)** — bebas digunakan untuk kebutuhan komersial maupun personal.
 - **Komunitas & Diskusi**: Jika Anda menemukan kendala atau ingin berdiskusi teknis, silakan buka [GitHub Issues](https://github.com/CieL7s/artoria-baileys/issues) atau [Discussions](https://github.com/CieL7s/artoria-baileys/discussions).
 
 ---
