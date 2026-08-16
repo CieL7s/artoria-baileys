@@ -1191,6 +1191,33 @@ pub fn get_device(id: String) -> Result<String> {
 }
 
 #[napi]
+pub fn extract_addressing_context(stanza_json: String) -> Result<String> {
+    let stanza: baileys_core::protocol::BinaryNode = serde_json::from_str(&stanza_json)
+        .map_err(|e| napi::Error::from_reason(format!("Invalid stanza JSON: {}", e)))?;
+    let ctx = baileys_core::message::MessageDecoder::extract_addressing_context(&stanza);
+    serde_json::to_string(&ctx)
+        .map_err(|e| napi::Error::from_reason(format!("Failed to serialize AddressingContext: {}", e)))
+}
+
+#[napi]
+pub fn decode_message_node(
+    stanza_json: String,
+    me_id: Option<String>,
+    me_lid: Option<String>,
+) -> Result<String> {
+    let stanza: baileys_core::protocol::BinaryNode = serde_json::from_str(&stanza_json)
+        .map_err(|e| napi::Error::from_reason(format!("Invalid stanza JSON: {}", e)))?;
+    let decoded = baileys_core::message::MessageDecoder::decode_message_node(
+        &stanza,
+        me_id.as_deref(),
+        me_lid.as_deref(),
+    ).map_err(|e| napi::Error::from_reason(format!("Decode message error: {}", e)))?;
+
+    serde_json::to_string(&decoded)
+        .map_err(|e| napi::Error::from_reason(format!("Failed to serialize DecodedMessageNode: {}", e)))
+}
+
+#[napi]
 pub fn version() -> String {
     format!("auriel-baileys-core v{}", baileys_core::version())
 }
