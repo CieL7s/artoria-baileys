@@ -9,6 +9,8 @@ pub mod normalizer;
 pub use normalizer::MessageNormalizer;
 pub mod decoder;
 pub use decoder::{AddressingContext, DecodedFullMessage, DecodedMessageKey, DecodedMessageNode, MessageDecoder};
+pub mod processor;
+pub use processor::MessageProcessor;
 
 pub fn generate_message_id() -> String {
     let hex = Uuid::new_v4().simple().to_string();

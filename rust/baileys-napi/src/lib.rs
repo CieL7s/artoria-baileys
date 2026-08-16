@@ -1249,6 +1249,75 @@ pub fn compute_app_state_patch_mac(patch_data: Buffer, mac_key: Buffer) -> Buffe
 }
 
 #[napi]
+pub fn clean_message(message_json: String, me_id: String, me_lid: Option<String>) -> Result<String> {
+    let msg: serde_json::Value = serde_json::from_str(&message_json)
+        .map_err(|e| napi::Error::from_reason(format!("Invalid message JSON: {}", e)))?;
+    let cleaned = baileys_core::message::MessageProcessor::clean_message(msg, &me_id, me_lid.as_deref());
+    serde_json::to_string(&cleaned)
+        .map_err(|e| napi::Error::from_reason(format!("Failed to serialize cleaned message: {}", e)))
+}
+
+#[napi]
+pub fn is_real_message(message_json: String) -> Result<bool> {
+    let msg: serde_json::Value = serde_json::from_str(&message_json)
+        .map_err(|e| napi::Error::from_reason(format!("Invalid message JSON: {}", e)))?;
+    Ok(baileys_core::message::MessageProcessor::is_real_message(&msg))
+}
+
+#[napi]
+pub fn should_increment_chat_unread(message_json: String) -> Result<bool> {
+    let msg: serde_json::Value = serde_json::from_str(&message_json)
+        .map_err(|e| napi::Error::from_reason(format!("Invalid message JSON: {}", e)))?;
+    Ok(baileys_core::message::MessageProcessor::should_increment_chat_unread(&msg))
+}
+
+#[napi]
+pub fn get_chat_id(remote_jid: String, participant: Option<String>, from_me: bool) -> Result<String> {
+    baileys_core::message::MessageProcessor::get_chat_id(&remote_jid, participant.as_deref(), from_me)
+        .map_err(|e| napi::Error::from_reason(e))
+}
+
+#[napi]
+pub fn decrypt_poll_vote(
+    enc_payload: Buffer,
+    enc_iv: Buffer,
+    poll_creator_jid: String,
+    poll_msg_id: String,
+    poll_enc_key: Buffer,
+    voter_jid: String,
+) -> Result<Buffer> {
+    let decrypted = baileys_core::message::MessageProcessor::decrypt_poll_vote(
+        enc_payload.as_ref(),
+        enc_iv.as_ref(),
+        &poll_creator_jid,
+        &poll_msg_id,
+        poll_enc_key.as_ref(),
+        &voter_jid,
+    ).map_err(|e| napi::Error::from_reason(e))?;
+    Ok(Buffer::from(decrypted))
+}
+
+#[napi]
+pub fn decrypt_event_response(
+    enc_payload: Buffer,
+    enc_iv: Buffer,
+    event_creator_jid: String,
+    event_msg_id: String,
+    event_enc_key: Buffer,
+    responder_jid: String,
+) -> Result<Buffer> {
+    let decrypted = baileys_core::message::MessageProcessor::decrypt_event_response(
+        enc_payload.as_ref(),
+        enc_iv.as_ref(),
+        &event_creator_jid,
+        &event_msg_id,
+        event_enc_key.as_ref(),
+        &responder_jid,
+    ).map_err(|e| napi::Error::from_reason(e))?;
+    Ok(Buffer::from(decrypted))
+}
+
+#[napi]
 pub fn version() -> String {
     format!("auriel-baileys-core v{}", baileys_core::version())
 }
