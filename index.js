@@ -6,73 +6,48 @@ import fs from 'fs';
 // Re-export everything from official complete Baileys library
 export * from './lib/index.js';
 import makeWASocket from './lib/index.js';
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-const require = createRequire(import.meta.url);
-
-// Load native pure-Rust compiled NAPI module if available
-let native = null;
-const possiblePaths = [
-  path.join(__dirname, 'rust/target/release/baileys_napi.dll'),
-  path.join(__dirname, 'baileys-napi.win32-x64-msvc.node'),
-  path.join(__dirname, 'baileys_napi.node'),
-  path.join(__dirname, 'baileys-napi.node'),
-  './baileys-napi.win32-x64-msvc.node',
-  './baileys_napi.node',
-  './baileys-napi.node'
-];
-
-for (const p of possiblePaths) {
-  try {
-    if (fs.existsSync(p)) {
-      native = require(p);
-      break;
-    }
-  } catch (err) {
-    // Continue searching
-  }
-}
+import { nativeRust } from './lib/Utils/native-loader.js';
 
 // Export native Rust high-performance bindings
-export const nativeRust = native;
-export const version = native?.version;
-export const decryptMedia = native?.decryptMedia;
-export const encryptMedia = native?.encryptMedia;
-export const buildPingNode = native?.buildPingNode;
-export const buildSyncdNode = native?.buildSyncdNode;
-export const encodeWamEvent = native?.encodeWamEvent;
-export const computePatchMac = native?.computePatchMac;
-export const decodeBinaryNode = native?.decodeBinaryNode;
-export const encodeBinaryNode = native?.encodeBinaryNode;
-export const buildReceiptNode = native?.buildReceiptNode;
-export const buildPinChatNode = native?.buildPinChatNode;
-export const buildPresenceNode = native?.buildPresenceNode;
-export const buildMuteChatNode = native?.buildMuteChatNode;
-export const buildGroupCreateNode = native?.buildGroupCreateNode;
-export const buildUsyncQueryNode = native?.buildUsyncQueryNode;
-export const buildUSyncQueryNode = native?.buildUsyncQueryNode;
-export const buildArchiveChatNode = native?.buildArchiveChatNode;
-export const buildCatalogQueryNode = native?.buildCatalogQueryNode;
-export const buildOrderDetailsNode = native?.buildOrderDetailsNode;
-export const buildProductQueryNode = native?.buildProductQueryNode;
-export const buildNewsletterMuteNode = native?.buildNewsletterMuteNode;
-export const buildCommunityCreateNode = native?.buildCommunityCreateNode;
-export const buildCollectionsQueryNode = native?.buildCollectionsQueryNode;
-export const buildGroupInviteCodeNode = native?.buildGroupInviteCodeNode;
-export const buildNewsletterCreateNode = native?.buildNewsletterCreateNode;
-export const buildNewsletterFollowNode = native?.buildNewsletterFollowNode;
-export const buildCommunityDeactivateNode = native?.buildCommunityDeactivateNode;
-export const buildGroupSettingUpdateNode = native?.buildGroupSettingUpdateNode;
-export const buildGroupUpdateSubjectNode = native?.buildGroupUpdateSubjectNode;
-export const buildCommunityLinkGroupsNode = native?.buildCommunityLinkGroupsNode;
-export const buildCommunityUnlinkGroupsNode = native?.buildCommunityUnlinkGroupsNode;
-export const buildGroupUpdateDescriptionNode = native?.buildGroupUpdateDescriptionNode;
-export const buildGroupParticipantsUpdateNode = native?.buildGroupParticipantsUpdateNode;
-export const WhatsAppClient = native?.WhatsAppClient;
-export const NoiseTransport = native?.NoiseTransport;
-export const usyncBuildQuery = native?.usyncBuildQuery;
-export const usyncParseQueryResult = native?.usyncParseQueryResult;
+export const nativeRustBinding = nativeRust;
+export { nativeRust };
+export const version = nativeRust?.version;
+export const decryptMedia = nativeRust?.decryptMedia;
+export const encryptMedia = nativeRust?.encryptMedia;
+export const buildPingNode = nativeRust?.buildPingNode;
+export const buildSyncdNode = nativeRust?.buildSyncdNode;
+export const encodeWamEvent = nativeRust?.encodeWamEvent;
+export const computePatchMac = nativeRust?.computePatchMac;
+export const decodeBinaryNode = nativeRust?.decodeBinaryNode;
+export const encodeBinaryNode = nativeRust?.encodeBinaryNode;
+export const buildReceiptNode = nativeRust?.buildReceiptNode;
+export const buildPinChatNode = nativeRust?.buildPinChatNode;
+export const buildPresenceNode = nativeRust?.buildPresenceNode;
+export const buildMuteChatNode = nativeRust?.buildMuteChatNode;
+export const buildGroupCreateNode = nativeRust?.buildGroupCreateNode;
+export const buildUsyncQueryNode = nativeRust?.buildUsyncQueryNode;
+export const buildUSyncQueryNode = nativeRust?.buildUsyncQueryNode;
+export const buildArchiveChatNode = nativeRust?.buildArchiveChatNode;
+export const buildCatalogQueryNode = nativeRust?.buildCatalogQueryNode;
+export const buildOrderDetailsNode = nativeRust?.buildOrderDetailsNode;
+export const buildProductQueryNode = nativeRust?.buildProductQueryNode;
+export const buildNewsletterMuteNode = nativeRust?.buildNewsletterMuteNode;
+export const buildCommunityCreateNode = nativeRust?.buildCommunityCreateNode;
+export const buildCollectionsQueryNode = nativeRust?.buildCollectionsQueryNode;
+export const buildGroupInviteCodeNode = nativeRust?.buildGroupInviteCodeNode;
+export const buildNewsletterCreateNode = nativeRust?.buildNewsletterCreateNode;
+export const buildNewsletterFollowNode = nativeRust?.buildNewsletterFollowNode;
+export const buildCommunityDeactivateNode = nativeRust?.buildCommunityDeactivateNode;
+export const buildGroupSettingUpdateNode = nativeRust?.buildGroupSettingUpdateNode;
+export const buildGroupUpdateSubjectNode = nativeRust?.buildGroupUpdateSubjectNode;
+export const buildCommunityLinkGroupsNode = nativeRust?.buildCommunityLinkGroupsNode;
+export const buildCommunityUnlinkGroupsNode = nativeRust?.buildCommunityUnlinkGroupsNode;
+export const buildGroupUpdateDescriptionNode = nativeRust?.buildGroupUpdateDescriptionNode;
+export const buildGroupParticipantsUpdateNode = nativeRust?.buildGroupParticipantsUpdateNode;
+export const WhatsAppClient = nativeRust?.WhatsAppClient;
+export const NoiseTransport = nativeRust?.NoiseTransport;
+export const usyncBuildQuery = nativeRust?.usyncBuildQuery;
+export const usyncParseQueryResult = nativeRust?.usyncParseQueryResult;
 export const makeInMemoryStore = (config) => ({
   chats: new Map(),
   messages: new Map(),
