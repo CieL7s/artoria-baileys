@@ -1,6 +1,6 @@
 # 🌸 Artoria-Baileys
 
-[![Version](https://img.shields.io/badge/version-0.5.0-blue.svg)](https://github.com/CieL7s/artoria-baileys)
+[![Version](https://img.shields.io/badge/version-0.6.0-blue.svg)](https://github.com/CieL7s/artoria-baileys)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Rust Native](https://img.shields.io/badge/Rust-baileys--core-orange.svg)](https://www.rust-lang.org/)
 [![Node.js N-API](https://img.shields.io/badge/Node.js-N--API-green.svg)](https://nodejs.org/)
@@ -9,7 +9,7 @@
 
 ---
 
-## 📌 Status Migrasi & Keterbukaan Arsitektur (v0.5.0)
+## 📌 Status Migrasi & Keterbukaan Arsitektur (v0.6.0)
 
 Proyek ini sedang dalam proses migrasi bertahap dari JavaScript murni ke Rust native engine. Kami menerapkan prinsip **transparansi penuh** mengenai komponen mana yang sudah berjalan di Rust dan mana yang masih berjalan di JavaScript:
 
@@ -19,13 +19,13 @@ Proyek ini sedang dalam proses migrasi bertahap dari JavaScript murni ke Rust na
 | **Level 0: Core & Media Crypto** | ✅ 100% Rust | **Rust Native (Default)** | AES-GCM, AES-CBC, HMAC-SHA256, Curve25519 & Media HKDF encryption/decryption.<br>*(Catatan: Modul WAM telemetri opsional dikecualikan dengan justifikasi anti-fingerprint anomaly).* |
 | **Level 1: Signal Group Primitives** | ✅ 100% Rust | **Rust Native (Default)** | `SenderChainKey`, `SenderMessageKey`, `SenderKeyName`, `SenderKeyDistributionMessage`, `SenderKeyMessage`, `SenderKeyState`, `SenderKeyRecord`.<br>📊 **Bukti empiris**: **1.959 operasi shadow real-time**, **37 deep edge cases** dengan **0 mismatch & 0 error**. |
 | **Level 2: Signal State Machine & Ciphers** | ✅ 100% Rust | **Rust Native (Default)** | `GroupCipher`, `GroupSessionBuilder`, `SessionCipher`, `SessionBuilder`, `LidPnMapping`.<br>📊 **Bukti empiris**: **155/155 test PASS**, verifikasi dua arah *Bidirectional Cross-Engine Interoperability* (Rust ↔ JS `libsignal`), validasi X3DH (full OTPK, no-OTPK, TOFU rotation), dan **terbukti stabil di traffic produksi live**. |
-| **Level 3: Protocol Transactions** | 🔴 JavaScript | **JavaScript** | USync query protocols & message event processing (target migrasi: Iterasi 4). |
+| **Level 3: Transaction Protocols & Message Processing** | ✅ 100% Rust | **Rust Native (Default)** | USync multi-protocol query (`contact`, `devices`, `status`, `disappearing_mode`, `lid`, `bot`, `username`), Envelope & Addressing Context (`pn` vs `lid`), App State Sync & History sync chunk reconstruction, Protobuf Message Normalizer (unwrapping 9 wrapper types), MessageProcessor (matriks 4-kuadran `fromMe` reaksi & poll, HKDF+AES-GCM `decryptPollVote` & `decryptEventResponse`, spam-loop offline catch-up prevention).<br>📊 **Bukti empiris**: **72/72 test Level 3 PASS**, **15/15 full regression suite PASS**. |
 | **Level 4: State Management & Auth I/O** | 🔴 JavaScript | **JavaScript** | Auth state file persistence & pre-key lifecycle management (target migrasi: Iterasi 5). |
 | **Level 5: Zero-Copy WebSocket Pipeline** | 🔴 JavaScript | **JavaScript** | WebSocket frame management & high-level socket facade (target migrasi: Iterasi 6). |
 
 ---
 
-## 🖥️ Platform Support (v0.5.0)
+## 🖥️ Platform Support (v0.6.0)
 
 - **Windows x64**: Prebuilt native binary disertakan (`baileys-napi.node`). Langsung siap pakai tanpa build compiler.
 - **Linux (glibc) / macOS (Intel & Apple Silicon)**: Perlu build native binary dari source menggunakan Rust toolchain:
