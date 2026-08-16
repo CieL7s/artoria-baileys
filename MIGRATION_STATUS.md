@@ -32,26 +32,26 @@ Setiap iterasi yang selesai WAJIB memperbarui status di tabel ini.
 
 ---
 
-### Level 1: Signal Group Primitives (Iterasi 2 - Selesai & Terverifikasi)
+### Level 1: Signal Group Primitives (Iterasi 2 - Selesai & Default di Produksi)
 | Modul / File | Status | Engine Aktif | Backup Legacy | Catatan |
 | :--- | :---: | :---: | :---: | :--- |
-| `lib/Signal/Group/sender-chain-key.js` | ✅ FULLY DELEGATED | **Rust N-API** (`baileys_core::signal::group::SenderChainKey`) | `sender-chain-key.legacy.js` | 551 iterasi ratchet 100% match identik (0 mismatch). |
-| `lib/Signal/Group/sender-message-key.js` | ✅ FULLY DELEGATED | **Rust N-API** (`baileys_core::signal::group::SenderMessageKey`) | `sender-message-key.legacy.js` | HKDF WhisperGroup derivation (IV 16B + Key 32B) 551 runs 100% match. |
-| `lib/Signal/Group/sender-key-name.js` | ✅ FULLY DELEGATED | **Rust N-API** (`baileys_core::signal::group::SenderKeyName`) | `sender-key-name.legacy.js` | Identitas unik SenderKey (`groupId::sender::deviceId`). |
-| `lib/Signal/Group/sender-key-distribution-message.js` | ✅ FULLY DELEGATED | **Rust N-API** (`baileys_core::signal::group::SenderKeyDistributionMessage`) | `sender-key-distribution-message.legacy.js` | Protobuf SKDM create & parse 50 rotasi key 100% match. |
-| `lib/Signal/Group/sender-key-message.js` | ✅ FULLY DELEGATED | **Rust N-API** (`baileys_core::signal::group::SenderKeyMessage`) | `sender-key-message.legacy.js` | Protobuf envelope & XEd25519 signature validator 100 runs 100% match. |
-| `lib/Signal/Group/sender-key-state.js` | ✅ FULLY DELEGATED | **Rust N-API** (`baileys_core::signal::group::SenderKeyState`) | `sender-key-state.legacy.js` | Container key ID, chain key, signing key (32/33B fix), & 50 skipped keys. |
-| `lib/Signal/Group/sender-key-record.js` | ✅ FULLY DELEGATED | **Rust N-API** (`baileys_core::signal::group::SenderKeyRecord`) | `sender-key-record.legacy.js` | 37 deep edge cases (0, 1, 3, 5, 20 states + FIFO eviction) 100% match. |
+| `lib/Signal/Group/sender-chain-key.js` | ✅ FULLY DELEGATED | **Rust N-API (Default)** (`baileys_core::signal::group::SenderChainKey`) | `sender-chain-key.legacy.js` | 551 iterasi ratchet 100% match identik (0 mismatch). |
+| `lib/Signal/Group/sender-message-key.js` | ✅ FULLY DELEGATED | **Rust N-API (Default)** (`baileys_core::signal::group::SenderMessageKey`) | `sender-message-key.legacy.js` | HKDF WhisperGroup derivation (IV 16B + Key 32B) 551 runs 100% match. |
+| `lib/Signal/Group/sender-key-name.js` | ✅ FULLY DELEGATED | **Rust N-API (Default)** (`baileys_core::signal::group::SenderKeyName`) | `sender-key-name.legacy.js` | Identitas unik SenderKey (`groupId::sender::deviceId`). |
+| `lib/Signal/Group/sender-key-distribution-message.js` | ✅ FULLY DELEGATED | **Rust N-API (Default)** (`baileys_core::signal::group::SenderKeyDistributionMessage`) | `sender-key-distribution-message.legacy.js` | Protobuf SKDM create & parse 50 rotasi key 100% match. |
+| `lib/Signal/Group/sender-key-message.js` | ✅ FULLY DELEGATED | **Rust N-API (Default)** (`baileys_core::signal::group::SenderKeyMessage`) | `sender-key-message.legacy.js` | Protobuf envelope & XEd25519 signature validator 100 runs 100% match. |
+| `lib/Signal/Group/sender-key-state.js` | ✅ FULLY DELEGATED | **Rust N-API (Default)** (`baileys_core::signal::group::SenderKeyState`) | `sender-key-state.legacy.js` | Container key ID, chain key, signing key (32/33B fix), & 50 skipped keys. |
+| `lib/Signal/Group/sender-key-record.js` | ✅ FULLY DELEGATED | **Rust N-API (Default)** (`baileys_core::signal::group::SenderKeyRecord`) | `sender-key-record.legacy.js` | 37 deep edge cases (0, 1, 3, 5, 20 states + FIFO eviction) 100% match. |
 
 ---
 
-### Level 2: Signal State Machine & Ciphers (Iterasi 3 - Selesai & Terverifikasi)
+### Level 2: Signal State Machine & Ciphers (Iterasi 3 - Selesai & Default di Produksi)
 | Modul / File | Status | Engine Aktif | Target Rust Module | Catatan |
 | :--- | :---: | :---: | :--- | :--- |
-| `lib/Signal/Group/group_cipher.js` | ✅ FULLY DELEGATED | **Rust N-API** | `baileys_core::signal::group::GroupCipher` | Enkripsi & dekripsi skmsg, sequential ratchet, out-of-order skipped keys (73/73 PASS, 20 real traffic bit-exact replays). |
-| `lib/Signal/Group/group-session-builder.js` | ✅ FULLY DELEGATED | **Rust N-API** | `baileys_core::signal::group::GroupSessionBuilder` | Ingest/process SKDM & session creation, FIFO 5-state invariant enforced. |
-| `lib/Signal/libsignal.js` (Pairwise Engine) | ✅ FULLY DELEGATED | **Rust N-API** | `baileys_core::signal::session::SessionCipher` & `SessionBuilder` | Pairwise Double Ratchet Signal Protocol (`pkmsg`/`msg`), full/no-OTPK X3DH, TOFU rotation. Terverifikasi 100% via Bidirectional Cross-Engine Interoperability (Rust ↔ JS libsignal) & 47 real session file roundtrips. |
-| `lib/Signal/lid-mapping.js` | ✅ FULLY DELEGATED | **Rust N-API** | `baileys_core::signal::lid_mapping` | Validation, device normalization & DB batching 100% Rust (14/14 PASS). |
+| `lib/Signal/Group/group_cipher.js` | ✅ FULLY DELEGATED | **Rust N-API (Default)** | `baileys_core::signal::group::GroupCipher` | Enkripsi & dekripsi skmsg, sequential ratchet, out-of-order skipped keys (73/73 PASS, 20 real traffic bit-exact replays). |
+| `lib/Signal/Group/group-session-builder.js` | ✅ FULLY DELEGATED | **Rust N-API (Default)** | `baileys_core::signal::group::GroupSessionBuilder` | Ingest/process SKDM & session creation, FIFO 5-state invariant enforced. |
+| `lib/Signal/libsignal.js` (Pairwise Engine) | ✅ FULLY DELEGATED | **Rust N-API (Default)** | `baileys_core::signal::session::SessionCipher` & `SessionBuilder` | Pairwise Double Ratchet Signal Protocol (`pkmsg`/`msg`), full/no-OTPK X3DH, TOFU rotation. Terverifikasi 100% via Bidirectional Cross-Engine Interoperability (Rust ↔ JS libsignal), 47 real session file roundtrips, dan real live usage. |
+| `lib/Signal/lid-mapping.js` | ✅ FULLY DELEGATED | **Rust N-API (Default)** | `baileys_core::signal::lid_mapping` | Validation, device normalization & DB batching 100% Rust (14/14 PASS). |
 
 ---
 

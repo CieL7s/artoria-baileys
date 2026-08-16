@@ -1,7 +1,7 @@
 {
   "name": "artoria-baileys",
-  "version": "0.5.0",
-  "description": "High-performance WhatsApp Web library powered by Rust native engine (Level 0, 1 & 2 fully migrated: Binary, Crypto, Media & Signal Protocol State Machine) — seamless drop-in companion for Baileys ecosystem.",
+  "version": "0.5.1",
+  "description": "High-performance WhatsApp Web library powered by Rust native engine (Level 0, 1 & 2 fully migrated: Binary, Crypto, Media & Signal Protocol State Machine - Default in Production) — seamless drop-in companion for Baileys ecosystem.",
   "main": "index.js",
   "module": "index.js",
   "types": "index.d.ts",
