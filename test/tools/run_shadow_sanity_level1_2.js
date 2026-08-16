@@ -196,6 +196,8 @@ stats.categories.pairwiseX3dh.total++;
 stats.totalExecutions++;
 if (bobInitDec.plaintext.toString('utf-8') === initMsg.toString('utf-8')) {
     stats.categories.pairwiseX3dh.matches++;
+} else {
+    stats.mismatches++;
 }
 
 // 50 Ping-Pong messages
