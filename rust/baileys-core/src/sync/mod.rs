@@ -3,6 +3,12 @@ use hmac::{Hmac, Mac};
 use sha2::Sha256;
 use std::collections::HashMap;
 
+pub mod action;
+pub mod history;
+
+pub use action::{ContactUpsertData, LidPnPair, SyncActionProcessor, SyncActionResult};
+pub use history::{HistoryContactItem, HistoryLidPnPnPair, HistoryProcessor, ProcessedHistoryResult};
+
 type HmacSha256 = Hmac<Sha256>;
 
 pub struct AppStateSync;

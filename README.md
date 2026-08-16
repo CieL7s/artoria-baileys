@@ -16,7 +16,7 @@ Proyek ini sedang dalam proses migrasi bertahap dari JavaScript murni ke Rust na
 | Layer / Modul | Status Implementasi | Engine Aktif | Detail & Metrik Pengujian |
 | :--- | :---: | :---: | :--- |
 | **Level 0: WABinary & JID Utils** | ✅ 100% Rust | **Rust Native (Default)** | Parsing JID, normalisasi, Binary XML Node encode & decode (100% bit-exact). |
-| **Level 0: Core & Media Crypto** | ✅ 100% Rust | **Rust Native (Default)** | AES-GCM, AES-CBC, HMAC-SHA256, Curve25519 & Media HKDF encryption/decryption. |
+| **Level 0: Core & Media Crypto** | ✅ 100% Rust | **Rust Native (Default)** | AES-GCM, AES-CBC, HMAC-SHA256, Curve25519 & Media HKDF encryption/decryption.<br>*(Catatan: Modul WAM telemetri opsional dikecualikan dengan justifikasi anti-fingerprint anomaly).* |
 | **Level 1: Signal Group Primitives** | ✅ 100% Rust | **Rust Native (Default)** | `SenderChainKey`, `SenderMessageKey`, `SenderKeyName`, `SenderKeyDistributionMessage`, `SenderKeyMessage`, `SenderKeyState`, `SenderKeyRecord`.<br>📊 **Bukti empiris**: **1.959 operasi shadow real-time**, **37 deep edge cases** dengan **0 mismatch & 0 error**. |
 | **Level 2: Signal State Machine & Ciphers** | ✅ 100% Rust | **Rust Native (Default)** | `GroupCipher`, `GroupSessionBuilder`, `SessionCipher`, `SessionBuilder`, `LidPnMapping`.<br>📊 **Bukti empiris**: **155/155 test PASS**, verifikasi dua arah *Bidirectional Cross-Engine Interoperability* (Rust ↔ JS `libsignal`), validasi X3DH (full OTPK, no-OTPK, TOFU rotation), dan **terbukti stabil di traffic produksi live**. |
 | **Level 3: Protocol Transactions** | 🔴 JavaScript | **JavaScript** | USync query protocols & message event processing (target migrasi: Iterasi 4). |

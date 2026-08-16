@@ -111,12 +111,32 @@ pub fn is_jid_user(jid: &str) -> bool {
     jid.ends_with("@s.whatsapp.net") || jid.ends_with("@c.us")
 }
 
+pub fn is_pn_user(jid: &str) -> bool {
+    jid.ends_with("@s.whatsapp.net")
+}
+
 pub fn is_lid_user(jid: &str) -> bool {
     jid.ends_with("@lid")
 }
 
+pub fn is_hosted_pn_user(jid: &str) -> bool {
+    jid.ends_with("@hosted")
+}
+
+pub fn is_hosted_lid_user(jid: &str) -> bool {
+    jid.ends_with("@hosted.lid")
+}
+
 pub fn is_jid_broadcast(jid: &str) -> bool {
     jid.ends_with("@broadcast")
+}
+
+pub fn is_jid_status_broadcast(jid: &str) -> bool {
+    jid == "status@broadcast"
+}
+
+pub fn is_jid_meta_ai(jid: &str) -> bool {
+    jid.ends_with("@bot")
 }
 
 pub fn is_jid_newsletter(jid: &str) -> bool {

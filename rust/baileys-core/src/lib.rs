@@ -34,7 +34,7 @@ pub use protocol::{
 };
 pub use signal::*;
 pub use sync::AppStateSync;
-pub use usync::USyncBuilder;
+pub use usync::*;
 pub use wam::WamEncoder;
 
 pub fn version() -> &'static str {

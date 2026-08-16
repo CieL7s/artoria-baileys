@@ -289,11 +289,23 @@ pub fn build_usync_query_node(
     mode: Option<String>,
     context: Option<String>,
 ) -> Result<JsNodePayload> {
-    let (id, node) = baileys_core::usync::USyncBuilder::build_query(
-        &users,
-        &protocols,
-        &mode.unwrap_or_else(|| "interactive".to_string()),
+    let id = baileys_core::message::generate_message_id();
+    let user_dtos: Vec<baileys_core::usync::USyncUserDTO> = users.into_iter().map(|u| baileys_core::usync::USyncUserDTO {
+        id: Some(u),
+        lid: None,
+        phone: None,
+        username: None,
+        username_key: None,
+        r#type: None,
+        persona_id: None,
+    }).collect();
+
+    let node = baileys_core::usync::USyncQueryEngine::build_query(
         &context.unwrap_or_else(|| "interactive".to_string()),
+        &mode.unwrap_or_else(|| "query".to_string()),
+        &user_dtos,
+        &protocols,
+        &id,
     );
     let node_json = serde_json::to_string(&node).map_err(|e| napi::Error::from_reason(e.to_string()))?;
     Ok(JsNodePayload { id, node_json })
@@ -1092,6 +1104,217 @@ pub fn signal_session_builder_build_pkmsg_envelope(
     ).map_err(|e| napi::Error::from_reason(e))?;
 
     Ok(Buffer::from(pkmsg))
+}
+
+#[napi]
+pub fn usync_build_query(
+    context: String,
+    mode: String,
+    users_json: String,
+    protocols_json: String,
+    message_id: String,
+) -> Result<String> {
+    let users: Vec<baileys_core::usync::USyncUserDTO> = serde_json::from_str(&users_json)
+        .map_err(|e| napi::Error::from_reason(format!("Invalid users JSON: {}", e)))?;
+    let protocols: Vec<String> = serde_json::from_str(&protocols_json)
+        .map_err(|e| napi::Error::from_reason(format!("Invalid protocols JSON: {}", e)))?;
+
+    let root = baileys_core::usync::USyncQueryEngine::build_query(
+        &context,
+        &mode,
+        &users,
+        &protocols,
+        &message_id,
+    );
+
+    serde_json::to_string(&root)
+        .map_err(|e| napi::Error::from_reason(format!("Failed to serialize query node: {}", e)))
+}
+
+#[napi]
+pub fn usync_parse_query_result(
+    iq_result_json: String,
+    protocols_json: String,
+) -> Result<String> {
+    let result_node: baileys_core::protocol::BinaryNode = serde_json::from_str(&iq_result_json)
+        .map_err(|e| napi::Error::from_reason(format!("Invalid result node JSON: {}", e)))?;
+    let protocols: Vec<String> = serde_json::from_str(&protocols_json)
+        .map_err(|e| napi::Error::from_reason(format!("Invalid protocols JSON: {}", e)))?;
+
+    let res = baileys_core::usync::USyncQueryEngine::parse_query_result(&result_node, &protocols)
+        .ok_or_else(|| napi::Error::from_reason("Failed to parse USync query result: invalid or missing usync node"))?;
+
+    serde_json::to_string(&res)
+        .map_err(|e| napi::Error::from_reason(format!("Failed to serialize query result: {}", e)))
+}
+
+#[napi]
+pub fn normalize_message_content(content_json: String) -> Result<Option<String>> {
+    let val: serde_json::Value = serde_json::from_str(&content_json)
+        .map_err(|e| napi::Error::from_reason(format!("Invalid message JSON: {}", e)))?;
+    let normalized = baileys_core::message::MessageNormalizer::normalize_message_content(val);
+    match normalized {
+        Some(v) => {
+            let s = serde_json::to_string(&v)
+                .map_err(|e| napi::Error::from_reason(format!("Failed to serialize normalized JSON: {}", e)))?;
+            Ok(Some(s))
+        }
+        None => Ok(None),
+    }
+}
+
+#[napi]
+pub fn extract_message_content(content_json: String) -> Result<Option<String>> {
+    let val: serde_json::Value = serde_json::from_str(&content_json)
+        .map_err(|e| napi::Error::from_reason(format!("Invalid message JSON: {}", e)))?;
+    let extracted = baileys_core::message::MessageNormalizer::extract_message_content(val);
+    match extracted {
+        Some(v) => {
+            let s = serde_json::to_string(&v)
+                .map_err(|e| napi::Error::from_reason(format!("Failed to serialize extracted JSON: {}", e)))?;
+            Ok(Some(s))
+        }
+        None => Ok(None),
+    }
+}
+
+#[napi]
+pub fn get_content_type(content_json: String) -> Result<Option<String>> {
+    let val: serde_json::Value = serde_json::from_str(&content_json)
+        .map_err(|e| napi::Error::from_reason(format!("Invalid message JSON: {}", e)))?;
+    Ok(baileys_core::message::MessageNormalizer::get_content_type(&val))
+}
+
+#[napi]
+pub fn get_device(id: String) -> Result<String> {
+    Ok(baileys_core::message::MessageNormalizer::get_device(&id).to_string())
+}
+
+#[napi]
+pub fn extract_addressing_context(stanza_json: String) -> Result<String> {
+    let stanza: baileys_core::protocol::BinaryNode = serde_json::from_str(&stanza_json)
+        .map_err(|e| napi::Error::from_reason(format!("Invalid stanza JSON: {}", e)))?;
+    let ctx = baileys_core::message::MessageDecoder::extract_addressing_context(&stanza);
+    serde_json::to_string(&ctx)
+        .map_err(|e| napi::Error::from_reason(format!("Failed to serialize AddressingContext: {}", e)))
+}
+
+#[napi]
+pub fn decode_message_node(
+    stanza_json: String,
+    me_id: Option<String>,
+    me_lid: Option<String>,
+) -> Result<String> {
+    let stanza: baileys_core::protocol::BinaryNode = serde_json::from_str(&stanza_json)
+        .map_err(|e| napi::Error::from_reason(format!("Invalid stanza JSON: {}", e)))?;
+    let decoded = baileys_core::message::MessageDecoder::decode_message_node(
+        &stanza,
+        me_id.as_deref(),
+        me_lid.as_deref(),
+    ).map_err(|e| napi::Error::from_reason(format!("Decode message error: {}", e)))?;
+
+    serde_json::to_string(&decoded)
+        .map_err(|e| napi::Error::from_reason(format!("Failed to serialize DecodedMessageNode: {}", e)))
+}
+
+#[napi]
+pub fn sync_process_contact_action(action_json: String, id: Option<String>) -> Result<String> {
+    let action: serde_json::Value = serde_json::from_str(&action_json)
+        .map_err(|e| napi::Error::from_reason(format!("Invalid action JSON: {}", e)))?;
+    let results = baileys_core::sync::SyncActionProcessor::process_contact_action(&action, id.as_deref());
+    serde_json::to_string(&results)
+        .map_err(|e| napi::Error::from_reason(format!("Failed to serialize SyncActionResult: {}", e)))
+}
+
+#[napi]
+pub fn history_extract_pn_from_messages(messages_json: String) -> Result<Option<String>> {
+    let msgs: Vec<serde_json::Value> = serde_json::from_str(&messages_json)
+        .map_err(|e| napi::Error::from_reason(format!("Invalid messages JSON: {}", e)))?;
+    Ok(baileys_core::sync::HistoryProcessor::extract_pn_from_messages(&msgs))
+}
+
+#[napi]
+pub fn history_process_message(history_json: String) -> Result<String> {
+    let history: serde_json::Value = serde_json::from_str(&history_json)
+        .map_err(|e| napi::Error::from_reason(format!("Invalid history JSON: {}", e)))?;
+    let res = baileys_core::sync::HistoryProcessor::process_history_message(history);
+    serde_json::to_string(&res)
+        .map_err(|e| napi::Error::from_reason(format!("Failed to serialize ProcessedHistoryResult: {}", e)))
+}
+
+#[napi]
+pub fn compute_app_state_patch_mac(patch_data: Buffer, mac_key: Buffer) -> Buffer {
+    let mac = baileys_core::sync::AppStateSync::compute_patch_mac(&patch_data, &mac_key);
+    Buffer::from(mac)
+}
+
+#[napi]
+pub fn clean_message(message_json: String, me_id: String, me_lid: Option<String>) -> Result<String> {
+    let msg: serde_json::Value = serde_json::from_str(&message_json)
+        .map_err(|e| napi::Error::from_reason(format!("Invalid message JSON: {}", e)))?;
+    let cleaned = baileys_core::message::MessageProcessor::clean_message(msg, &me_id, me_lid.as_deref());
+    serde_json::to_string(&cleaned)
+        .map_err(|e| napi::Error::from_reason(format!("Failed to serialize cleaned message: {}", e)))
+}
+
+#[napi]
+pub fn is_real_message(message_json: String) -> Result<bool> {
+    let msg: serde_json::Value = serde_json::from_str(&message_json)
+        .map_err(|e| napi::Error::from_reason(format!("Invalid message JSON: {}", e)))?;
+    Ok(baileys_core::message::MessageProcessor::is_real_message(&msg))
+}
+
+#[napi]
+pub fn should_increment_chat_unread(message_json: String) -> Result<bool> {
+    let msg: serde_json::Value = serde_json::from_str(&message_json)
+        .map_err(|e| napi::Error::from_reason(format!("Invalid message JSON: {}", e)))?;
+    Ok(baileys_core::message::MessageProcessor::should_increment_chat_unread(&msg))
+}
+
+#[napi]
+pub fn get_chat_id(remote_jid: String, participant: Option<String>, from_me: bool) -> Result<String> {
+    baileys_core::message::MessageProcessor::get_chat_id(&remote_jid, participant.as_deref(), from_me)
+        .map_err(|e| napi::Error::from_reason(e))
+}
+
+#[napi]
+pub fn decrypt_poll_vote(
+    enc_payload: Buffer,
+    enc_iv: Buffer,
+    poll_creator_jid: String,
+    poll_msg_id: String,
+    poll_enc_key: Buffer,
+    voter_jid: String,
+) -> Result<Buffer> {
+    let decrypted = baileys_core::message::MessageProcessor::decrypt_poll_vote(
+        enc_payload.as_ref(),
+        enc_iv.as_ref(),
+        &poll_creator_jid,
+        &poll_msg_id,
+        poll_enc_key.as_ref(),
+        &voter_jid,
+    ).map_err(|e| napi::Error::from_reason(e))?;
+    Ok(Buffer::from(decrypted))
+}
+
+#[napi]
+pub fn decrypt_event_response(
+    enc_payload: Buffer,
+    enc_iv: Buffer,
+    event_creator_jid: String,
+    event_msg_id: String,
+    event_enc_key: Buffer,
+    responder_jid: String,
+) -> Result<Buffer> {
+    let decrypted = baileys_core::message::MessageProcessor::decrypt_event_response(
+        enc_payload.as_ref(),
+        enc_iv.as_ref(),
+        &event_creator_jid,
+        &event_msg_id,
+        event_enc_key.as_ref(),
+        &responder_jid,
+    ).map_err(|e| napi::Error::from_reason(e))?;
+    Ok(Buffer::from(decrypted))
 }
 
 #[napi]
