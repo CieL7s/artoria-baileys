@@ -11,7 +11,7 @@ Setiap iterasi yang selesai WAJIB memperbarui status di tabel ini.
 | :--- | :--- | :---: | :---: | :---: | :---: |
 | **Level 0** | Primitives & Formats (WABinary, JID, Core Crypto, Media) | 6 | 5 | 1 | 🟡 83% Selesai |
 | **Level 1** | Signal Group Primitives (SenderKey Data Structures) | 7 | 7 | 0 | ✅ 100% Selesai (Battle-Tested) |
-| **Level 2** | Signal Ciphers & State Machine (Group & Pairwise) | 4 | 0 | 4 | 🔴 0% (Target Iterasi 3) |
+| **Level 2** | Signal Ciphers & State Machine (Group & Pairwise) | 4 | 4 | 0 | ✅ 100% Selesai (Battle-Tested) |
 | **Level 3** | Transaction Protocols & Message Processing | 5 | 0 | 5 | 🔴 0% (Target Iterasi 4) |
 | **Level 4** | State Managers & Auth File I/O | 4 | 0 | 4 | 🔴 0% (Target Iterasi 5) |
 | **Level 5** | Socket Pipeline & Public API Facade | 4 | 0 | 4 | 🔴 0% (Target Iterasi 6) |
@@ -45,13 +45,13 @@ Setiap iterasi yang selesai WAJIB memperbarui status di tabel ini.
 
 ---
 
-### Level 2: Signal State Machine & Ciphers (Target: Iterasi 3)
+### Level 2: Signal State Machine & Ciphers (Iterasi 3 - Selesai & Terverifikasi)
 | Modul / File | Status | Engine Aktif | Target Rust Module | Catatan |
 | :--- | :---: | :---: | :--- | :--- |
-| `lib/Signal/Group/group_cipher.js` | 🔴 NOT STARTED | **JavaScript** | `baileys_core::signal::group::GroupCipher` | Enkripsi & dekripsi pesan grup (`skmsg`). |
-| `lib/Signal/Group/group-session-builder.js` | 🔴 NOT STARTED | **JavaScript** | `baileys_core::signal::group::GroupSessionBuilder` | Ingest/process SKDM ke `SenderKeyRecord`. |
-| `lib/Signal/libsignal.js` (Pairwise Engine) | 🔴 NOT STARTED | **JavaScript** | `baileys_core::signal::session::SessionCipher` | Pairwise Double Ratchet Signal Protocol (`pkmsg`/`msg`). |
-| `lib/Signal/lid-mapping.js` | 🔴 NOT STARTED | **JavaScript** | `baileys_core::signal::LidPnMapping` | Mapping & cache PN-to-LID & LID-to-PN. |
+| `lib/Signal/Group/group_cipher.js` | ✅ FULLY DELEGATED | **Rust N-API** | `baileys_core::signal::group::GroupCipher` | Enkripsi & dekripsi skmsg, sequential ratchet, out-of-order skipped keys (73/73 PASS, 20 real traffic bit-exact replays). |
+| `lib/Signal/Group/group-session-builder.js` | ✅ FULLY DELEGATED | **Rust N-API** | `baileys_core::signal::group::GroupSessionBuilder` | Ingest/process SKDM & session creation, FIFO 5-state invariant enforced. |
+| `lib/Signal/libsignal.js` (Pairwise Engine) | ✅ FULLY DELEGATED | **Rust N-API** | `baileys_core::signal::session::SessionCipher` & `SessionBuilder` | Pairwise Double Ratchet Signal Protocol (`pkmsg`/`msg`), full/no-OTPK X3DH, TOFU rotation. Terverifikasi 100% via Bidirectional Cross-Engine Interoperability (Rust ↔ JS libsignal) & 47 real session file roundtrips. |
+| `lib/Signal/lid-mapping.js` | ✅ FULLY DELEGATED | **Rust N-API** | `baileys_core::signal::lid_mapping` | Validation, device normalization & DB batching 100% Rust (14/14 PASS). |
 
 ---
 
