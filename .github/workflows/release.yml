@@ -68,7 +68,6 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 20
-          cache: 'npm'
 
       - name: Install System Cross-Toolchains (musl / aarch64)
         if: runner.os == 'Linux' && (matrix.setup_musl || matrix.setup_aarch64)
@@ -87,12 +86,15 @@ jobs:
           targets: ${{ matrix.target }}
 
       - name: Install Node Dependencies
-        run: npm ci || npm install
+        run: npm install --no-audit --no-fund
 
       - name: Build Native Addon (Release)
         env:
           RUSTFLAGS: ${{ runner.os == 'macOS' && '-C link-arg=-undefined -C link-arg=dynamic_lookup' || '' }}
           CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: ${{ matrix.setup_aarch64 && 'aarch64-linux-gnu-gcc' || '' }}
+          CC_aarch64_unknown_linux_gnu: ${{ matrix.setup_aarch64 && 'aarch64-linux-gnu-gcc' || '' }}
+          CXX_aarch64_unknown_linux_gnu: ${{ matrix.setup_aarch64 && 'aarch64-linux-gnu-g++' || '' }}
+          CC_x86_64_unknown_linux_musl: ${{ matrix.setup_musl && 'musl-gcc' || '' }}
         run: cargo build --manifest-path rust/Cargo.toml --package baileys-napi --release --target ${{ matrix.target }}
 
       - name: Prepare Binary Artifact
