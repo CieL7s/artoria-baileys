@@ -1,5 +1,5 @@
 import path from 'path';
-import { pathToFileURL } from 'url';
+import { pathToFileURL, fileURLToPath } from 'url';
 import os from 'os';
 import crypto from 'crypto';
 import { execSync } from 'child_process';
@@ -7,8 +7,15 @@ import { createRequire } from 'module';
 
 const require = createRequire(import.meta.url);
 
-const PURE_JS_DIR = 'C:/Users/ASUS/Documents/Project/baileys-onrust/Baileys/lib';
-const RUST_DIR = 'C:/Users/ASUS/Documents/Project/baileys-onrust - Copy/lib';
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const PROJECT_ROOT = path.resolve(__dirname, '../..');
+
+// Pure JS Baileys untuk komparasi — bisa di-override via env PURE_JS_BAILEYS_PATH
+// Default tetap ke upstream Baileys (jika ada di mesin benchmark). Jika tidak ada, benchmark akan skip/fail dengan pesan jelas.
+const PURE_JS_DIR = process.env.PURE_JS_BAILEYS_PATH || 'C:/Users/ASUS/Documents/Project/baileys-onrust/Baileys/lib';
+// Rust/Artoria dir sekarang pakai direktori project ini sendiri (portable, tidak hardcode ke " - Copy")
+const RUST_DIR = path.join(PROJECT_ROOT, 'lib');
 
 // Helper for dynamic imports
 async function loadModules() {

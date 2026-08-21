@@ -136,4 +136,17 @@ impl SenderKeyRecord {
 
         Err("Failed to deserialize SenderKeyRecord from json".to_string())
     }
+
+    pub fn serialize_to_msgpack(&self) -> Result<Vec<u8>, String> {
+        let mut buf = Vec::new();
+        let mut ser = rmp_serde::Serializer::new(&mut buf).with_struct_map();
+        self.serialize().serialize(&mut ser).map_err(|e| e.to_string())?;
+        Ok(buf)
+    }
+
+    pub fn deserialize_from_msgpack(bytes: &[u8]) -> Result<Self, String> {
+        let mut de = rmp_serde::Deserializer::new(bytes);
+        let states: Vec<SenderKeyState> = serde::Deserialize::deserialize(&mut de).map_err(|e| e.to_string())?;
+        Ok(Self::from_states(states))
+    }
 }
