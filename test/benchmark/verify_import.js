@@ -1,8 +1,12 @@
 import path from 'path';
-import { pathToFileURL } from 'url';
+import { pathToFileURL, fileURLToPath } from 'url';
 
-const pureBaileysDir = 'C:/Users/ASUS/Documents/Project/baileys-onrust/Baileys/lib';
-const artoriaDir = 'C:/Users/ASUS/Documents/Project/baileys-onrust - Copy/lib';
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const PROJECT_ROOT = path.resolve(__dirname, '../..');
+
+const pureBaileysDir = process.env.PURE_JS_BAILEYS_PATH || 'C:/Users/ASUS/Documents/Project/baileys-onrust/Baileys/lib';
+const artoriaDir = path.join(PROJECT_ROOT, 'lib');
 
 console.log('Testing module loading...');
 

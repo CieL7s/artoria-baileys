@@ -35,11 +35,17 @@ pub fn serialize_buffer_json<S>(bytes: &[u8], serializer: S) -> Result<S::Ok, S:
 where
     S: Serializer,
 {
-    use serde::ser::SerializeStruct;
-    let mut state = serializer.serialize_struct("BufferJSON", 2)?;
-    state.serialize_field("type", "Buffer")?;
-    state.serialize_field("data", bytes)?;
-    state.end()
+    // Human-readable (JSON) → {type:"Buffer",data:[...]} untuk kompatibilitas JS Buffer.from JSON
+    // Binary (MessagePack via rmp-serde) → raw bytes (bin) jauh lebih kompak & cepat
+    if serializer.is_human_readable() {
+        use serde::ser::SerializeStruct;
+        let mut state = serializer.serialize_struct("BufferJSON", 2)?;
+        state.serialize_field("type", "Buffer")?;
+        state.serialize_field("data", bytes)?;
+        state.end()
+    } else {
+        serializer.serialize_bytes(bytes)
+    }
 }
 
 pub fn deserialize_buffer_json<'de, D>(deserializer: D) -> Result<Vec<u8>, D::Error>

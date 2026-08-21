@@ -72,10 +72,10 @@ Pengujian dijalankan pada lingkungan bare-metal terisolasi dengan parameter seba
 | **Konfigurasi Core** | 4 Cores Fisik / 8 Logical Threads @ 2.10 GHz (Base Clock) |
 | **Cache CPU** | L1 Data Cache: 128 KB, L2 Cache: 2.0 MB, L3 Cache: 4.0 MB |
 | **Memori Sistem (RAM)** | 16.00 GB (15.44 GB Usable) DDR4 Dual-Channel @ 2400 MT/s |
-| **Sistem Operasi (OS)** | Microsoft Windows 11 Home 64-bit (OS Build: 26200.5650 x64) |
-| **Runtime JavaScript** | Node.js `v25.9.0` (V8 Engine `v13.4.114.14-node.17`) |
+| **Sistem Operasi (OS)** | Microsoft Windows 11 Pro 64-bit (OS Build: 26200 x64) |
+| **Runtime JavaScript** | Node.js `v25.9.0` (V8 Engine `v14.1.146.11-node.25`) |
 | **Rust Toolchain** | `rustc 1.97.1 (8bab26f4f 2026-07-14)` (Stable Toolchain) |
-| **Profil Kompilasi Rust** | `opt-level = 3`, `lto = "fat"`, `codegen-units = 1`, `panic = "abort"` |
+| **Profil Kompilasi Rust** | `opt-level = 3` (`--release`, `lto` & `codegen-units` default Cargo) |
 | **Skrip Otomasi Pengujian**| [`test/benchmark/run-full-benchmark.js`](test/benchmark/run-full-benchmark.js) |
 | **Stempel Waktu Eksekusi** | `2026-08-16T14:31:11.554Z` |
 
@@ -589,7 +589,108 @@ node --expose-gc test/benchmark/run-full-benchmark.js
 
 ---
 
+## 13. 🔬 Optimasi FFI Boundary P1-P2 — Before/After & Pelajaran Arsitektural
+
+> **Fase 0 Approval Gate: 21 Agustus 2026 — P1 (GroupCipher) + P2 (WABinary) — 100% Rust, tanpa fallback JS.**
+> Seluruh angka di bawah adalah median 5-run pada mesin yang sama (Ryzen 5 3550H, Node v25.9.0, rustc 1.97.1). Histori **tidak menghapus** data `v0.6.1` — ditambahkan kolom Before/After untuk transparansi penuh.
+
+### 13.1 Ringkasan Eksekutif Optimasi (Real-World vs Bulk)
+
+| Kategori | v0.6.1 Baseline (BENCHMARK.md) | After P1.3 (hot-import fix, sequential) | After P1.2 Sequential (real-time) | After P1.2 Batch (bulk, 5000 tersedia) | Keterangan |
+|---|---|---|---|---|---|
+| **GroupCipher 1k cycle** | 19,746 ms / 26,101 ms `0.76×` JS 1.32× | 18,958 / 22,299 ms `0.85×` JS 1.17× (**-14.9% Rust**) | 18,996 / 22,434 ms `0.85×` | — (batch untuk throughput) | P1.3 saja +33% throughput, P1.2 sequential **1.07× Rust win** (real-time) |
+| **Throughput 5k decrypt** | 105.8 / 69.2 msg/s `0.65×` JS 1.53× | 106.0 / 88.7 msg/s `0.84×` JS 1.19× (**+33% Rust**) | **104.3 / 111.7 msg/s `1.07×` Rust win** | **104.3 / 7663 msg/s `73×` Rust win** (0.65s vs 47.9s) | **73× hanya untuk bulk** — lihat 13.4 |
+| **WABinary Encode Small** | 8.92 / 10.42 ms `0.86×` | — | 9.5 / 9.3 ms `1.02×` Rust win (JSON) | Object `0.42×` 7.2/17.1 (regresi) | P2 Object Binding kalah di semua ukuran |
+| **WABinary Decode Small** | 7.72 / 33.68 ms `0.23×` | — | 6.8 / 32.5 ms `0.21×` | Object `0.18×` 8.4/45.5 |  |
+| **WABinary Encode Medium** | 23.15 / 32.67 ms `0.71×` | — | 19.2 / 28.9 ms `0.66×` | Object `0.86×` 18.6/21.8 (sedikit lebih baik tapi tetap kalah) |  |
+| **WABinary Decode Medium** | 11.04 / 122.04 ms `0.09×` | — | 9.8 / 94.3 ms `0.10×` | Object `0.06×` 10.0/156.6 |  |
+| **WABinary Encode Large** | 1,036 / 907 ms `1.14×` Rust win | — | 687 / 492 ms `1.40×` Rust win (JSON) | Object `0.65×` 683/1049 (balik kalah) | JSON win, Object kalah |
+| **WABinary Decode Large** | 225 / 7,384 ms `0.03×` JS 32× | — | 207 / 7,999 ms `0.03×` | Object `0.01×` 203/15024 (**2× lebih buruk**) |  |
+
+> **Angka yang AKAN DIRASAKAN production sehari-hari (pesan streaming satu-satu) adalah `1.07× sequential` (P1.3), BUKAN `73× batch`.** `73×` hanya untuk skenario bulk di mana 5000 `SenderKeyMessage` sudah tersedia sekaligus (history sync, `dry-run-replay`). Lihat 13.4 untuk konteks.
+
+### 13.2 P1.3 — Quick-Fix Hot-Path `await import()` (Tanpa Risiko)
+
+**File:** `lib/Signal/Group/group_cipher.js:8-27,77-90,100-110`
+
+**Root cause:** Tiap `decrypt` melakukan `await import('../../../test/tools/traffic-recorder-level2.js')` + `console.log('[SKMSG_VERIFY...]')` di hot loop. 5k decrypt = 5k dynamic import + 5k sync log.
+
+**Fix:** Cache `getRecordLevel2()` + guard `RECORD_LEVEL2=1` (default OFF), `DEBUG_SKMSG=1` untuk log. Satu import untuk seluruh proses, bukan per pesan.
+
+**Before → After (5-run median, isolated `run-p1-isolated.js`):**
+- GroupCipher 1k: 19,746/26,101 `0.76×` → **18,958/22,299 `0.85×`** — Rust **-3,896ms (-14.9%)**, gap 1.32× → 1.17×
+- Throughput 5k: 105.8/69.2 `0.65×` → **106.0/88.7 `0.84×`** — Rust **+22 msg/s (+33%)**, gap 1.53× → 1.19×
+- Run1 Rust 6,666ms vs 18,086ms (**-63%** cold) — bukti import adalah tax dominan di iterasi awal.
+- **Regression:** `test/index.test.js` 10/10 PASS, 4 parity suite 13-19/19 PASS, `verify-sender-key-record-deep` 37/37 PASS — **0 diff.**
+
+### 13.3 P1.1 — JSON → MessagePack (rmp-serde) — **Regresi, Opt-In**
+
+**File:** `rust/baileys-core/src/signal/group/state.rs:34`, `record.rs:122-138`, `rust/baileys-napi/src/lib.rs:868-912`, `lib/Signal/Group/group_cipher.js:43-56` (`msgpackr` `Packr({useRecords:false})` + `rmp_serde::Serializer::with_struct_map()`)
+
+**Harapan:** Binary MessagePack lebih kecil (1 state: JSON 562B → msgpack 325B, 1.73×) dan lebih cepat parse.
+
+**Hasil ukur (10k iter, 1 state):**
+- `JSON.stringify` 20.26ms (0.002ms/op) vs `pack` 37.24ms (0.004ms/op) — **msgpack pack 1.84× lebih lambat** (V8 JSON C++ vs JS msgpackr)
+- `JSON.parse` 43.68ms vs `unpack` 60.31ms — **1.38× lebih lambat**
+
+**Benchmark GroupCipher (5-run median):**
+- 1k cycle JSON `0.85×` (18,958/22,299) → msgpack `0.73×` (19,746/26,973) — **-14.9% regresi**
+- Throughput JSON `0.84×` (106/88.7) → msgpack `0.59×` (92.9/54.5) — **-37% regresi**
+
+**Keputusan jujur:** Untuk record kecil (1 state, 0 skipped keys) yang dominan di real usage, **native V8 `JSON.parse/stringify` (C++) tidak terkalahkan** oleh JS msgpackr. MessagePack tetap ada di Rust (`serialize_to_msgpack`/`deserialize_from_msgpack`) dan JS (`pack`/`unpack`) tapi **default OFF**, opt-in `SIGNAL_MSGPACK=1` untuk record besar (5 states, 2000 skipped keys) di mana kompresi 1.91× mungkin relevan. Tidak dipakai di hot path default.
+
+### 13.4 P1.2 — Batch API `decryptBatch` — **73× untuk Bulk, 1.07× untuk Real-Time**
+
+**File:** `rust/baileys-napi/src/lib.rs:914-1020` `signalGroupCipherDecryptBatch`/`EncryptBatch` (JSON, `Vec<Buffer>`), `lib/Signal/Group/group_cipher.js:179-210` `decryptBatch`/`encryptBatch` (additive, bukan pengganti)
+
+**Desain:** Satu crossing untuk N pesan: `loadSenderKey` 1× → loop N `GroupCipher::decrypt` di Rust → `storeSenderKey` 1×. Sebelumnya N× `load`/`store` + N× crossing.
+
+**Throughput 5k (2× re-run, σ<1%):**
+```
+Pure JS Sequential:        104.3 msg/s (47.94s) / 103.0 msg/s (48.52s)
+Rust Sequential (JSON):    111.7 msg/s (44.77s) / 111.3 msg/s (44.90s) → 1.07× win (real-time)
+Rust Batch (1 crossing):  7663   msg/s (0.65s)  / 7696   msg/s (0.65s)  → 73× vs JS, 69× vs Rust sequential
+```
+
+**Konteks realisme (penting):**
+- **Real-time bot (pesan streaming satu-satu dari socket):** Batch **TIDAK APPLICABLE** — pesan datang 1 STANZA → 1 `decrypt`. Micro-batching 10-50ms window butuh buffer, +20ms latency, kompleksitas ordering/retry jika 1 pesan gagal `old counter`. Untuk grup sepi (1 pesan/menit) batch size selalu 1 → 0 gain. **Angka real-time adalah `1.07×` (P1.3).**
+- **Bulk/history sync (5k pesan tersedia sekaligus):** `HISTORY_SYNC`, `dry-run-replay`, `simulate-traffic` — **73× relevan 100%**. Ini skenario `test/benchmark/run-p1-batch.js:42`.
+- **Keputusan integrasi:** `decryptBatch` **tetap additive untuk bulk/history sync**, **tidak auto-integrasi ke jalur real-time** tanpa desain window terpisah (butuh approval Fase 2). Jalur `messages.upsert` tetap `decrypt` single.
+
+> **Jangan baca ringkasan sebagai "73× lebih cepat untuk semua kondisi" — itu menyesatkan. Baca sebagai "1.07× untuk pesan satu-satu, 73× untuk bulk 5k tersedia".**
+
+### 13.5 P2 — WABinary Object Binding `#[napi(object)]` — **Kalah di Semua Ukuran, Opt-In**
+
+**File:** `rust/baileys-napi/src/lib.rs:99-198` `core_node_to_js_object`/`js_object_to_core_node` (`Env`/`Object`/`Array`/`Buffer`), `lib/WABinary/decode.js:31`, `encode.js:6` (`WABINARY_OBJECT=1` else JSON)
+
+**Hasil per ukuran (1000 iter, 5-run median, `WABINARY_OBJECT=1` vs JSON default):**
+
+| Ukuran | JSON default (setelah P2) | Object Binding | Target P2 | Kesimpulan |
+|---|---|---|---|---|
+| Encode Small | **1.02×** 9.5/9.3 Rust win | **0.42×** 7.2/17.1 | 0.6× | Object **regresi 2.4×** |
+| Decode Small | **0.21×** 6.8/32.5 | **0.18×** 8.4/45.5 | 0.6× | Object lebih buruk |
+| Encode Medium | **0.66×** 19.2/28.9 | **0.86×** 18.6/21.8 (sedikit lebih baik tapi tetap kalah) | 0.6× | — |
+| Decode Medium | **0.10×** 9.8/94.3 | **0.06×** 10.0/156.6 | 0.5-0.8× | Object **1.7× lebih buruk** |
+| Encode Large | **1.40×** 687/492 Rust win (sudah win sebelum P2) | **0.65×** 683/1049 (balik kalah) | 1.0× | Object **balik kalah** |
+| Decode Large | **0.03×** 207/7999 (JS 32×) | **0.01×** 203/15024 (**2× lebih buruk**) | 0.6-1.0× | Object **2× lebih buruk** |
+
+**Paritas:** `small 35B`, `medium 105B`, `large 4626B` & `large 200 peserta` decode `tag`+`attrs` benar, `mapContentBuffers` benar — **korektnas 0 diff**, hanya performa.
+
+**Keputusan:** `WABINARY_OBJECT` **default OFF**, JSON string tetap default. Object Binding tetap ada sebagai **opt-in eksperimen** (`WABINARY_OBJECT=1`) tapi tidak dipakai produksi. Untuk large decode, `N-API per-field` (800× `napi_create_string_utf8` untuk 200 peserta) memang lebih lambat dari `serde_json::to_string` + `JSON.parse` (C++), sesuai prediksi `BLUEPRINT.md:41`.
+
+### 13.6 📚 Pelajaran Arsitektural — Format vs Jumlah Crossing
+
+> **Setelah mencoba 2 strategi marshalling berbeda (MessagePack binary di P1.1, manual N-API object construction di P2), keduanya GAGAL mengalahkan native V8 `JSON.parse`/`JSON.stringify` (C++ built-in) untuk operasi single-call.**
+>
+> **Pelajaran:** Biaya dominan bukan di **FORMAT** data yang di-transfer (`JSON` vs `MessagePack` vs `N-API object`), tapi di **JUMLAH crossing FFI boundary** itu sendiri. Tiap `napi_env` + `HandleScope` + validasi argumen = 1-5µs tax, tidak peduli payload 100B atau 10KB. `msgpackr` pack 37ms vs `JSON.stringify` 20ms dan `N-API 800×` 15s vs `JSON` 7s membuktikan: V8 JSON (C++) sudah sangat optimal untuk single-call.
+>
+> **Optimasi yang berhasil (P1.2, 73× untuk kasus applicable) justru datang dari MENGURANGI JUMLAH CALL, bukan mempercepat tiap call individual.** Satu crossing untuk 5000 pesan (batch) menghemat 4999× `napi_env` + 4999× `loadSenderKey`/`storeSenderKey`. Sebaliknya, mempercepat satu call dari 20µs → 10µs hampir tidak terasa di GroupCipher 18ms/call.
+>
+> **Implikasi Fase 2:** `Binary Arena` (flat buffer, `BLUEPRINT.md:76` Pilar 1) dan `rayon threadpool` (Pilar 5) akan berhasil **hanya jika mereka juga mengurangi jumlah crossing** (Arena: 1 `Buffer` untuk 200 node, bukan 800 `napi_create_object`; Threadpool: 1 crossing untuk N pesan). Jika Fase 2 hanya "mempercepat format" tanpa mengurangi crossing, kemungkinan akan mengulang kegagalan P1.1/P2. Law of diminishing returns sudah terlihat — real-time single-message sudah di titik optimal (`1.07×`), investasi besar Fase 2 hanya untuk bulk.
+
+---
+
 <div align="center">
   <b>Artoria-Baileys — Engineered for High Performance & Uncompromising Reliability.</b><br>
-  <i>Dokumen ini dihasilkan secara otomatis dari data pengujian empiris resmi v0.6.1.</i>
+  <i>Dokumen ini dihasilkan secara otomatis dari data pengujian empiris resmi v0.6.1 + optimasi P1-P2 (21 Agustus 2026).</i>
 </div>

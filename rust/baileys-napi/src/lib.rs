@@ -97,6 +97,113 @@ pub fn encode_binary_node(node_json: String) -> Result<Buffer> {
     Ok(Buffer::from(bytes))
 }
 
+// [P2] Object Binding — direct N-API object tanpa JSON string round-trip.
+// Keep JSON API for fallback, JS akan auto-pick object jika tersedia.
+fn core_node_to_js_object(env: Env, node: CoreNode) -> Result<Object> {
+    let mut obj = env.create_object()?;
+    obj.set_named_property("tag", env.create_string(&node.tag)?)?;
+    let mut attrs_obj = env.create_object()?;
+    for (k, v) in node.attrs {
+        attrs_obj.set_named_property(&k, env.create_string(&v)?)?;
+    }
+    obj.set_named_property("attrs", attrs_obj)?;
+    match node.content {
+        None => {
+            obj.set_named_property("content", env.get_undefined()?)?;
+        }
+        Some(baileys_core::protocol::node::BinaryNodeContent::String(s)) => {
+            obj.set_named_property("content", env.create_string(&s)?)?;
+        }
+        Some(baileys_core::protocol::node::BinaryNodeContent::Bytes(b)) => {
+            obj.set_named_property("content", Buffer::from(b))?;
+        }
+        Some(baileys_core::protocol::node::BinaryNodeContent::List(list)) => {
+            let mut arr = env.create_array_with_length(list.len())?;
+            for (i, child) in list.into_iter().enumerate() {
+                let child_obj = core_node_to_js_object(env, child)?;
+                arr.set_element(i as u32, child_obj)?;
+            }
+            obj.set_named_property("content", arr)?;
+        }
+        Some(baileys_core::protocol::node::BinaryNodeContent::NodeBuffer(nb)) => {
+            obj.set_named_property("content", Buffer::from(nb.data))?;
+        }
+    }
+    Ok(obj)
+}
+
+fn js_object_to_core_node(env: Env, obj: Object) -> Result<CoreNode> {
+    let tag: String = obj.get_named_property::<String>("tag").map_err(|e| napi::Error::from_reason(format!("missing tag: {}", e)))?;
+    let attrs_obj: Object = obj.get_named_property::<Object>("attrs").unwrap_or_else(|_| env.create_object().unwrap());
+    let mut attrs = std::collections::HashMap::new();
+    let attr_names = attrs_obj.get_property_names().map_err(|e| napi::Error::from_reason(e.to_string()))?;
+    let len = attr_names.get_array_length().map_err(|e| napi::Error::from_reason(e.to_string()))?;
+    for i in 0..len {
+        let js_key: napi::JsString = attr_names.get_element::<napi::JsString>(i).map_err(|e| napi::Error::from_reason(e.to_string()))?;
+        let key: String = js_key.into_utf8().map_err(|e| napi::Error::from_reason(e.to_string()))?.as_str().map_err(|e| napi::Error::from_reason(e.to_string()))?.to_string();
+        let val: String = attrs_obj.get_named_property::<String>(&key).map_err(|e| napi::Error::from_reason(e.to_string()))?;
+        attrs.insert(key, val);
+    }
+    let content_unknown = obj.get_named_property::<napi::bindgen_prelude::Unknown>("content").ok();
+    let content = if let Some(unk) = content_unknown {
+        let val_type = unk.get_type().map_err(|e| napi::Error::from_reason(e.to_string()))?;
+        match val_type {
+            napi::ValueType::Undefined | napi::ValueType::Null => None,
+            napi::ValueType::String => {
+                let js_str = unk.coerce_to_string().map_err(|e| napi::Error::from_reason(e.to_string()))?;
+                let utf8 = js_str.into_utf8().map_err(|e| napi::Error::from_reason(e.to_string()))?;
+                let s = utf8.as_str().map_err(|e| napi::Error::from_reason(e.to_string()))?.to_string();
+                Some(baileys_core::protocol::node::BinaryNodeContent::String(s))
+            }
+            napi::ValueType::Object => {
+                // Try Buffer (Bytes) first, then Array (List)
+                if let Ok(b) = obj.get_named_property::<Buffer>("content") {
+                    Some(baileys_core::protocol::node::BinaryNodeContent::Bytes(b.to_vec()))
+                } else if let Ok(arr) = obj.get_named_property::<Object>("content") {
+                    // content is Array (list) — check if it has length property
+                    let len: u32 = arr.get_array_length().map_err(|e| napi::Error::from_reason(e.to_string()))?;
+                    // Heuristic: if arr is array, it will have numeric indices; try to get element 0
+                    // If get_element fails, it's not an array, fallback to string
+                    let is_array = arr.get_element::<Object>(0).is_ok() || len == 0;
+                    if is_array || len == 0 {
+                        let mut list = Vec::with_capacity(len as usize);
+                        for i in 0..len {
+                            let child_obj: Object = arr.get_element::<Object>(i).map_err(|e| napi::Error::from_reason(e.to_string()))?;
+                            list.push(js_object_to_core_node(env, child_obj)?);
+                        }
+                        Some(baileys_core::protocol::node::BinaryNodeContent::List(list))
+                    } else {
+                        None
+                    }
+                } else {
+                    // fallback string (e.g., content is empty string)
+                    let s: String = obj.get_named_property::<String>("content").unwrap_or_default();
+                    if s.is_empty() { None } else { Some(baileys_core::protocol::node::BinaryNodeContent::String(s)) }
+                }
+            }
+            _ => None,
+        }
+    } else {
+        None
+    };
+    Ok(CoreNode { tag, attrs, content })
+}
+
+#[napi]
+pub fn decode_binary_node_object(env: Env, buffer: Buffer) -> Result<Object> {
+    let node = core_decode_node(buffer.as_ref())
+        .map_err(|e| napi::Error::from_reason(e.to_string()))?;
+    core_node_to_js_object(env, node)
+}
+
+#[napi]
+pub fn encode_binary_node_object(env: Env, node_obj: Object) -> Result<Buffer> {
+    let node = js_object_to_core_node(env, node_obj)?;
+    let bytes = core_encode_node(&node)
+        .map_err(|e| napi::Error::from_reason(e.to_string()))?;
+    Ok(Buffer::from(bytes))
+}
+
 // --- Group Builders ---
 
 #[napi]
@@ -529,24 +636,14 @@ impl WhatsAppClient {
             })?;
 
         let event_rx_arc = self.client.event_rx.clone();
-
-        std::thread::spawn(move || {
-            let rt = match tokio::runtime::Builder::new_current_thread().enable_all().build() {
-                Ok(r) => r,
-                Err(e) => {
-                    eprintln!("[Artoria-Baileys] Event runtime build error: {}", e);
-                    return;
+        let rt = self.rt.clone();
+        rt.spawn(async move {
+            let mut lock = event_rx_arc.lock().await;
+            while let Some(event) = lock.recv().await {
+                if let Ok(json_str) = serde_json::to_string(&event) {
+                    let _ = tsfn.call(json_str, ThreadsafeFunctionCallMode::NonBlocking);
                 }
-            };
-
-            rt.block_on(async move {
-                let mut lock = event_rx_arc.lock().await;
-                while let Some(event) = lock.recv().await {
-                    if let Ok(json_str) = serde_json::to_string(&event) {
-                        let _ = tsfn.call(json_str, ThreadsafeFunctionCallMode::NonBlocking);
-                    }
-                }
-            });
+            }
         });
 
         Ok(())
@@ -555,18 +652,9 @@ impl WhatsAppClient {
     #[napi]
     pub fn connect(&self) {
         let client = self.client.clone();
-        std::thread::spawn(move || {
-            let rt = match tokio::runtime::Builder::new_multi_thread().enable_all().build() {
-                Ok(r) => r,
-                Err(e) => {
-                    eprintln!("[Artoria-Baileys] Connection runtime build error: {}", e);
-                    return;
-                }
-            };
-
-            rt.block_on(async move {
-                client.start_connection_async().await;
-            });
+        let rt = self.rt.clone();
+        rt.spawn(async move {
+            client.start_connection_async().await;
         });
     }
 
@@ -880,6 +968,133 @@ pub fn signal_group_cipher_decrypt(
 
     Ok(NapiGroupDecryptResult {
         plaintext: Buffer::from(pt),
+        record_json: serialized,
+    })
+}
+
+// [P1.1] MessagePack variants — binary marshalling tanpa JSON string overhead (rmp-serde)
+// Keep old JSON API for backward compat, JS will auto-pick msgpack jika tersedia.
+#[napi(object)]
+pub struct NapiGroupEncryptResultMsgpack {
+    pub ciphertext: Buffer,
+    pub record_msgpack: Buffer,
+}
+
+#[napi(object)]
+pub struct NapiGroupDecryptResultMsgpack {
+    pub plaintext: Buffer,
+    pub record_msgpack: Buffer,
+}
+
+#[napi]
+pub fn signal_group_cipher_encrypt_msgpack(
+    record_msgpack: Buffer,
+    padded_plaintext: Buffer,
+) -> Result<NapiGroupEncryptResultMsgpack> {
+    let mut record = baileys_core::signal::SenderKeyRecord::deserialize_from_msgpack(&record_msgpack)
+        .map_err(|e| napi::Error::from_reason(e))?;
+    let ct = baileys_core::signal::GroupCipher::encrypt(&mut record, &padded_plaintext)
+        .map_err(|e| napi::Error::from_reason(e))?;
+    let serialized = record.serialize_to_msgpack().map_err(|e| napi::Error::from_reason(e))?;
+    Ok(NapiGroupEncryptResultMsgpack {
+        ciphertext: Buffer::from(ct),
+        record_msgpack: Buffer::from(serialized),
+    })
+}
+
+#[napi]
+pub fn signal_group_cipher_decrypt_msgpack(
+    record_msgpack: Buffer,
+    sender_key_message_bytes: Buffer,
+) -> Result<NapiGroupDecryptResultMsgpack> {
+    let mut record = baileys_core::signal::SenderKeyRecord::deserialize_from_msgpack(&record_msgpack)
+        .map_err(|e| napi::Error::from_reason(e))?;
+    let pt = baileys_core::signal::GroupCipher::decrypt(&mut record, &sender_key_message_bytes)
+        .map_err(|e| napi::Error::from_reason(e))?;
+    let serialized = record.serialize_to_msgpack().map_err(|e| napi::Error::from_reason(e))?;
+    Ok(NapiGroupDecryptResultMsgpack {
+        plaintext: Buffer::from(pt),
+        record_msgpack: Buffer::from(serialized),
+    })
+}
+
+// [P1.2] Batch APIs — satu crossing untuk N pesan, amortisasi FFI tax. Tambahan, bukan pengganti.
+#[napi(object)]
+pub struct NapiGroupDecryptBatchResult {
+    pub plaintexts: Vec<Buffer>,
+    pub record_json: String,
+}
+
+#[napi(object)]
+pub struct NapiGroupDecryptBatchResultMsgpack {
+    pub plaintexts: Vec<Buffer>,
+    pub record_msgpack: Buffer,
+}
+
+#[napi]
+pub fn signal_group_cipher_decrypt_batch(
+    record_json: String,
+    ciphertexts: Vec<Buffer>,
+) -> Result<NapiGroupDecryptBatchResult> {
+    let mut record = baileys_core::signal::SenderKeyRecord::deserialize_from_json(&record_json)
+        .map_err(|e| napi::Error::from_reason(e))?;
+    let mut plaintexts = Vec::with_capacity(ciphertexts.len());
+    for ct in ciphertexts {
+        let pt = baileys_core::signal::GroupCipher::decrypt(&mut record, ct.as_ref())
+            .map_err(|e| napi::Error::from_reason(e))?;
+        plaintexts.push(Buffer::from(pt));
+    }
+    let serialized = serde_json::to_string(&record.serialize())
+        .map_err(|e| napi::Error::from_reason(e.to_string()))?;
+    Ok(NapiGroupDecryptBatchResult {
+        plaintexts,
+        record_json: serialized,
+    })
+}
+
+#[napi]
+pub fn signal_group_cipher_decrypt_batch_msgpack(
+    record_msgpack: Buffer,
+    ciphertexts: Vec<Buffer>,
+) -> Result<NapiGroupDecryptBatchResultMsgpack> {
+    let mut record = baileys_core::signal::SenderKeyRecord::deserialize_from_msgpack(&record_msgpack)
+        .map_err(|e| napi::Error::from_reason(e))?;
+    let mut plaintexts = Vec::with_capacity(ciphertexts.len());
+    for ct in ciphertexts {
+        let pt = baileys_core::signal::GroupCipher::decrypt(&mut record, ct.as_ref())
+            .map_err(|e| napi::Error::from_reason(e))?;
+        plaintexts.push(Buffer::from(pt));
+    }
+    let serialized = record.serialize_to_msgpack().map_err(|e| napi::Error::from_reason(e))?;
+    Ok(NapiGroupDecryptBatchResultMsgpack {
+        plaintexts,
+        record_msgpack: Buffer::from(serialized),
+    })
+}
+
+#[napi(object)]
+pub struct NapiGroupEncryptBatchResult {
+    pub ciphertexts: Vec<Buffer>,
+    pub record_json: String,
+}
+
+#[napi]
+pub fn signal_group_cipher_encrypt_batch(
+    record_json: String,
+    plaintexts: Vec<Buffer>,
+) -> Result<NapiGroupEncryptBatchResult> {
+    let mut record = baileys_core::signal::SenderKeyRecord::deserialize_from_json(&record_json)
+        .map_err(|e| napi::Error::from_reason(e))?;
+    let mut ciphertexts = Vec::with_capacity(plaintexts.len());
+    for pt in plaintexts {
+        let ct = baileys_core::signal::GroupCipher::encrypt(&mut record, pt.as_ref())
+            .map_err(|e| napi::Error::from_reason(e))?;
+        ciphertexts.push(Buffer::from(ct));
+    }
+    let serialized = serde_json::to_string(&record.serialize())
+        .map_err(|e| napi::Error::from_reason(e.to_string()))?;
+    Ok(NapiGroupEncryptBatchResult {
+        ciphertexts,
         record_json: serialized,
     })
 }
