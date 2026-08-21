@@ -7,8 +7,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const require = createRequire(import.meta.url);
-const rust = require(path.join(__dirname, '../baileys-napi.node'));
+import { nativeRust as rust } from '../lib/Utils/native-loader.js';
 
 console.log('🚀 Starting Sub-Modul 5: process-message.js Rust Parity & Deep Crypto Test Suite...\n');
 

@@ -1,6 +1,6 @@
 {
   "name": "artoria-baileys",
-  "version": "0.6.1",
+  "version": "0.6.3",
   "description": "High-performance WhatsApp Web library powered by Rust native engine (Level 0, 1, 2 & 3 fully migrated: Binary, Crypto, Media, Signal Protocol State Machine, Transaction Protocols & Message Processing - Default in Production) — seamless drop-in companion for Baileys ecosystem.",
   "main": "index.js",
   "module": "index.js",
@@ -50,7 +50,8 @@
   "scripts": {
     "test": "bun test/index.test.js",
     "test:node": "node test/index.test.js",
-    "build:rust": "cargo build --package baileys-napi --release"
+    "build": "node scripts/build.js",
+    "build:rust": "node scripts/build.js"
   },
   "dependencies": {
     "@cacheable/node-cache": "^1.4.0",

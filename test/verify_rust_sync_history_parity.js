@@ -6,8 +6,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const require = createRequire(import.meta.url);
-const rust = require(path.join(__dirname, '../baileys-napi.node'));
+import { nativeRust as rust } from '../lib/Utils/native-loader.js';
 
 console.log('🚀 Starting Sub-Modul 3: sync-action-utils & history Rust Parity Verification Test Suite...\n');
 

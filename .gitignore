@@ -13,6 +13,7 @@ rust/target_test/
 *.pdb
 *.exp
 *.lib
+baileys-napi.node
 
 # Authentication credentials, sessions & database
 auth_info_baileys/

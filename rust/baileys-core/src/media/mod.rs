@@ -47,7 +47,9 @@ pub struct MediaKeys {
 }
 
 pub fn derive_media_keys(media_key: &[u8; 32], media_type: &MediaType) -> Result<MediaKeys, MediaError> {
-    let expanded = hkdf_sha256(&[], media_key, media_type.app_info(), 112)
+    let hk = hkdf::Hkdf::<Sha256>::new(None, media_key);
+    let mut expanded = [0u8; 112];
+    hk.expand(media_type.app_info(), &mut expanded)
         .map_err(|e| MediaError::CryptoError(e.to_string()))?;
 
     let mut iv = [0u8; 16];
@@ -68,7 +70,7 @@ pub fn derive_media_keys(media_key: &[u8; 32], media_type: &MediaType) -> Result
     })
 }
 
-/// AES-256-CBC Decryption with PKCS7 unpadding
+/// AES-256-CBC Decryption with PKCS7 unpadding (8-block AES-NI pipelined)
 pub fn aes_cbc_decrypt(key: &[u8; 32], iv: &[u8; 16], ciphertext: &[u8]) -> Result<Vec<u8>, MediaError> {
     if ciphertext.len() % 16 != 0 || ciphertext.is_empty() {
         return Err(MediaError::InvalidBufferLength);
@@ -76,16 +78,40 @@ pub fn aes_cbc_decrypt(key: &[u8; 32], iv: &[u8; 16], ciphertext: &[u8]) -> Resu
 
     let cipher = Aes256::new_from_slice(key).map_err(|e| MediaError::CryptoError(e.to_string()))?;
     let mut plaintext = vec![0u8; ciphertext.len()];
-    let mut prev_block = iv;
+    let num_blocks = ciphertext.len() / 16;
 
-    for (chunk_in, chunk_out) in ciphertext.chunks_exact(16).zip(plaintext.chunks_exact_mut(16)) {
-        let mut block = aes::Block::clone_from_slice(chunk_in);
-        cipher.decrypt_block(&mut block);
+    let batch_size = 8;
+    let full_batches = num_blocks / batch_size;
+    let mut prev_iv = *iv;
 
-        for i in 0..16 {
-            chunk_out[i] = block[i] ^ prev_block[i];
+    for b in 0..full_batches {
+        let offset = b * batch_size * 16;
+        let cipher_slice = &ciphertext[offset..offset + batch_size * 16];
+        let mut blocks: [aes::Block; 8] = Default::default();
+        for i in 0..8 {
+            blocks[i] = *aes::Block::from_slice(&cipher_slice[i * 16..(i + 1) * 16]);
         }
-        prev_block = chunk_in.try_into().unwrap();
+        cipher.decrypt_blocks(&mut blocks);
+        for i in 0..8 {
+            let out_slice = &mut plaintext[offset + i * 16..offset + (i + 1) * 16];
+            for k in 0..16 {
+                out_slice[k] = blocks[i][k] ^ prev_iv[k];
+            }
+            prev_iv.copy_from_slice(&cipher_slice[i * 16..(i + 1) * 16]);
+        }
+    }
+
+    let rem_start = full_batches * batch_size;
+    for b in rem_start..num_blocks {
+        let offset = b * 16;
+        let cipher_chunk = &ciphertext[offset..offset + 16];
+        let mut block = *aes::Block::from_slice(cipher_chunk);
+        cipher.decrypt_block(&mut block);
+        let out_slice = &mut plaintext[offset..offset + 16];
+        for k in 0..16 {
+            out_slice[k] = block[k] ^ prev_iv[k];
+        }
+        prev_iv.copy_from_slice(cipher_chunk);
     }
 
     // PKCS7 unpadding
