@@ -28,6 +28,7 @@
   "files": [
     "index.js",
     "index.d.ts",
+    "lib/**/*",
     "*.node",
     "WAProto/**/*",
     "README.md",
