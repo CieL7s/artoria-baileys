@@ -17,10 +17,15 @@ pub mod sync;
 pub mod usync;
 pub mod wam;
 
-pub use auth::{AuthenticationCreds, FileAuthState, KeyPair, MemorySignalStore, SignalKeyStore};
+pub use auth::{
+    AuthenticationCreds, FileAuthState, FileAuthStateCore, IdentityEvaluation,
+    IdentityHandlerCore, KeyPair, MemorySignalStore, OperationsResult, PreKeyManagerCore,
+    PreKeyRecord, SignalKeyStore,
+};
 pub use business::BusinessBuilder;
 pub use chats::ChatBuilder;
 pub use client::WhatsAppClientCore;
+pub use connection::{NativeRetryState, RecreateDecision, RetryManagerCore, RetryReason};
 pub use communities::CommunityBuilder;
 pub use events::BotEvent;
 pub use groups::GroupBuilder;

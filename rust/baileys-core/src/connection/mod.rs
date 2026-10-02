@@ -1,3 +1,6 @@
+pub mod retry_manager;
+pub use retry_manager::{NativeRetryState, RecreateDecision, RetryManagerCore, RetryReason};
+
 use futures_util::{SinkExt, StreamExt};
 use prost::Message as ProstMessage;
 use std::sync::atomic::{AtomicBool, Ordering};

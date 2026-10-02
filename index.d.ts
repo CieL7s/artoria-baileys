@@ -173,6 +173,54 @@ export function buildReceiptNode(jid: string, participant: string | null, messag
 export function buildPresenceNode(presenceType: string, toJid?: string | null): NodePayload;
 export function buildPingNode(): NodePayload;
 
+export enum RetryReason {
+  UnknownError = 0,
+  SignalErrorNoSession = 1,
+  SignalErrorInvalidKey = 2,
+  SignalErrorInvalidKeyId = 3,
+  SignalErrorInvalidMessage = 4,
+  SignalErrorInvalidSignature = 5,
+  SignalErrorFutureMessage = 6,
+  SignalErrorBadMac = 7,
+  SignalErrorInvalidSession = 8,
+  SignalErrorInvalidMsgKey = 9,
+  BadBroadcastEphemeralSetting = 10,
+  UnknownCompanionNoPrekey = 11,
+  AdvFailure = 12,
+  StatusRevokeDelay = 13,
+}
+
+export class MessageRetryManager {
+  constructor(logger: any, maxMsgRetryCount?: number);
+  addRecentMessage(to: string, id: string, message: any): void;
+  getRecentMessage(to: string, id: string): any;
+  shouldRecreateSession(jid: string, hasSession: boolean, errorCode?: number): { reason: string; recreate: boolean };
+  parseRetryErrorCode(errorAttr?: string): number | undefined;
+  isMacError(errorCode?: number): boolean;
+  incrementRetryCount(messageId: string): number;
+  getRetryCount(messageId: string): number;
+  hasExceededMaxRetries(messageId: string): boolean;
+  markRetrySuccess(messageId: string): void;
+  markRetryFailed(messageId: string): void;
+  schedulePhoneRequest(messageId: string, callback: () => void, delay?: number): void;
+  cancelPendingPhoneRequest(messageId: string): void;
+  clear(): void;
+  saveBaseKey(addr: string, msgId: string, baseKey: Buffer): void;
+  hasSameBaseKey(addr: string, msgId: string, baseKey: Buffer): boolean;
+  deleteBaseKey(addr: string, msgId: string): void;
+}
+
+export class PreKeyManager {
+  constructor(store: any, logger: any);
+  static generateBatch(startId: number, count: number): { keyId: number; keyPair: { public: Buffer; private: Buffer } }[];
+  processOperations(data: any, keyType: string, transactionCache: any, mutations: any, isInTransaction: boolean): Promise<void>;
+  processDeletions(keyType: string, ids: string[], transactionCache: any, mutations: any, isInTransaction: boolean): Promise<void>;
+  validateDeletions(data: any, keyType: string): Promise<void>;
+}
+
+export function handleIdentityChange(node: any, ctx: any): Promise<{ action: string; device?: number; error?: any }>;
+export function useMultiFileAuthState(folder: string): Promise<{ state: { creds: any; keys: any }; saveCreds: () => Promise<void> }>;
+
 export function isJidGroup(jid: string): boolean;
 export function isJidUser(jid: string): boolean;
 export function isJidStatusBroadcast(jid: string): boolean;

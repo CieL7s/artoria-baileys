@@ -13,7 +13,7 @@ Setiap iterasi yang selesai WAJIB memperbarui status di tabel ini.
 | **Level 1** | Signal Group Primitives (SenderKey Data Structures) | 7 | 7 | 0 | ✅ 100% Selesai (Default di Produksi) |
 | **Level 2** | Signal Ciphers & State Machine (Group & Pairwise) | 4 | 4 | 0 | ✅ 100% Selesai (Default di Produksi) |
 | **Level 3** | Transaction Protocols & Message Processing | 5 | 5 | 0 | ✅ 100% Selesai (5/5 modul terdelegasi ke Rust) |
-| **Level 4** | State Managers & Auth File I/O | 4 | 0 | 4 | 🔴 0% (Target Iterasi 5) |
+| **Level 4** | State Managers & Auth File I/O | 4 | 4 | 0 | ✅ 100% Selesai (4/4 modul terdelegasi ke Rust) |
 | **Level 5** | Socket Pipeline & Public API Facade | 4 | 0 | 4 | 🔴 0% (Target Iterasi 6) |
 
 ---
@@ -66,13 +66,13 @@ Setiap iterasi yang selesai WAJIB memperbarui status di tabel ini.
 
 ---
 
-### Level 4: State Management & File I/O (Target: Iterasi 5)
+### Level 4: State Management & File I/O (Iterasi 5 - Selesai & Default di Produksi)
 | Modul / File | Status | Engine Aktif | Target Rust Module | Catatan |
 | :--- | :---: | :---: | :--- | :--- |
-| `lib/Utils/use-multi-file-auth-state.js` | 🔴 NOT STARTED | **JavaScript** | `baileys_core::auth::FileAuthState` | Multi-file JSON key storage (kompatibel penuh 100% Baileys). |
-| `lib/Utils/message-retry-manager.js` | 🔴 NOT STARTED | **JavaScript** | `baileys_core::connection::RetryManager` | Antrean retry stanza dropped / E2EE decrypt failure. |
-| `lib/Utils/pre-key-manager.js` | 🔴 NOT STARTED | **JavaScript** | `baileys_core::auth::PreKeyManager` | Batch generator & uploader prekey baru saat kuota menipis. |
-| `lib/Utils/identity-change-handler.js` | 🔴 NOT STARTED | **JavaScript** | `baileys_core::auth::IdentityHandler` | TOFU Public Identity Key change handler. |
+| `lib/Utils/use-multi-file-auth-state.js` | ✅ FULLY DELEGATED | **Rust N-API (Default)** | `baileys_core::auth::FileAuthState` | Multi-file JSON key storage dengan atomic removal & batch I/O, Buffer recovery, nested `signedPreKey` normalization, dan granular isolation. |
+| `lib/Utils/message-retry-manager.js` | ✅ FULLY DELEGATED | **Rust N-API (Default)** | `baileys_core::connection::RetryManager` | Antrean retry stanza dropped / E2EE decrypt failure, MAC error immediate recreation, base key tracking. |
+| `lib/Utils/pre-key-manager.js` | ✅ FULLY DELEGATED | **Rust N-API (Default)** | `baileys_core::auth::PreKeyManager` | Batch Curve25519 prekey generator, zero-copy process operations, transaction cache mutations, dan deletion validation. |
+| `lib/Utils/identity-change-handler.js` | ✅ FULLY DELEGATED | **Rust N-API (Default)** | `baileys_core::auth::IdentityHandler` | TOFU Public Identity Key change handler, companion device & self primary filtering, debounce, offline checks. |
 
 ---
 

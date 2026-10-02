@@ -2,7 +2,8 @@ import path from 'path';
 import { pathToFileURL, fileURLToPath } from 'url';
 import os from 'os';
 import crypto from 'crypto';
-import { execSync } from 'child_process';
+import fs from 'fs';
+import { execSync, execFileSync } from 'child_process';
 import { createRequire } from 'module';
 
 const require = createRequire(import.meta.url);
@@ -11,25 +12,12 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const PROJECT_ROOT = path.resolve(__dirname, '../..');
 
-// Pure JS Baileys untuk komparasi — bisa di-override via env PURE_JS_BAILEYS_PATH
-// Default tetap ke upstream Baileys (jika ada di mesin benchmark). Jika tidak ada, benchmark akan skip/fail dengan pesan jelas.
-const PURE_JS_DIR = process.env.PURE_JS_BAILEYS_PATH || 'C:/Users/ASUS/Documents/Project/baileys-onrust/Baileys/lib';
-// Rust/Artoria dir sekarang pakai direktori project ini sendiri (portable, tidak hardcode ke " - Copy")
+const PURE_JS_DIR = process.env.PURE_JS_BAILEYS_PATH || path.join(PROJECT_ROOT, 'upstream-baileys/lib');
 const RUST_DIR = path.join(PROJECT_ROOT, 'lib');
 
-// Helper for dynamic imports
 async function loadModules() {
     const jsWABinary = await import(pathToFileURL(path.join(PURE_JS_DIR, 'WABinary/index.js')).href);
     const rustWABinary = await import(pathToFileURL(path.join(RUST_DIR, 'WABinary/index.js')).href);
-
-    const jsMessages = await import(pathToFileURL(path.join(PURE_JS_DIR, 'Utils/messages.js')).href);
-    const rustMessages = await import(pathToFileURL(path.join(RUST_DIR, 'Utils/messages.js')).href);
-
-    const jsDecode = await import(pathToFileURL(path.join(PURE_JS_DIR, 'Utils/decode-wa-message.js')).href);
-    const rustDecode = await import(pathToFileURL(path.join(RUST_DIR, 'Utils/decode-wa-message.js')).href);
-
-    const jsProcess = await import(pathToFileURL(path.join(PURE_JS_DIR, 'Utils/process-message.js')).href);
-    const rustProcess = await import(pathToFileURL(path.join(RUST_DIR, 'Utils/process-message.js')).href);
 
     const jsGroupCipher = await import(pathToFileURL(path.join(PURE_JS_DIR, 'Signal/Group/group_cipher.js')).href);
     const rustGroupCipher = await import(pathToFileURL(path.join(RUST_DIR, 'Signal/Group/group_cipher.js')).href);
@@ -49,33 +37,49 @@ async function loadModules() {
     const jsSenderKeyRecord = await import(pathToFileURL(path.join(PURE_JS_DIR, 'Signal/Group/sender-key-record.js')).href);
     const rustSenderKeyRecord = await import(pathToFileURL(path.join(RUST_DIR, 'Signal/Group/sender-key-record.js')).href);
 
-    const jsMediaCrypto = await import(pathToFileURL(path.join(PURE_JS_DIR, 'Utils/crypto.js')).href);
     const rustNative = (await import(pathToFileURL(path.join(RUST_DIR, 'Utils/native-loader.js')).href)).nativeRust;
+
+    const jsPreKey = await import(pathToFileURL(path.join(PURE_JS_DIR, 'Utils/pre-key-manager.js')).href);
+    const rustPreKey = await import(pathToFileURL(path.join(RUST_DIR, 'Utils/pre-key-manager.js')).href);
+
+    const jsRetry = await import(pathToFileURL(path.join(PURE_JS_DIR, 'Utils/message-retry-manager.js')).href);
+    const rustRetry = await import(pathToFileURL(path.join(RUST_DIR, 'Utils/message-retry-manager.js')).href);
+
+    const jsIdentity = await import(pathToFileURL(path.join(PURE_JS_DIR, 'Utils/identity-change-handler.js')).href);
+    const rustIdentity = await import(pathToFileURL(path.join(RUST_DIR, 'Utils/identity-change-handler.js')).href);
+
+    const jsAuth = await import(pathToFileURL(path.join(PURE_JS_DIR, 'Utils/use-multi-file-auth-state.js')).href);
+    const rustAuth = await import(pathToFileURL(path.join(RUST_DIR, 'Utils/use-multi-file-auth-state.js')).href);
+
+    const jsUSyncQuery = await import(pathToFileURL(path.join(PURE_JS_DIR, 'WAUSync/USyncQuery.js')).href);
+    const jsUSyncUser = await import(pathToFileURL(path.join(PURE_JS_DIR, 'WAUSync/USyncUser.js')).href);
 
     const jsCurve = require('libsignal/src/curve.js');
     const libsignal = require('libsignal');
+    const libsignalSessionRecord = require('libsignal/src/session_record.js');
 
     return {
         js: {
             WABinary: jsWABinary,
-            messages: jsMessages,
-            decode: jsDecode,
-            process: jsProcess,
             GroupCipher: jsGroupCipher.GroupCipher,
             GroupSessionBuilder: jsGroupSessionBuilder.GroupSessionBuilder,
             SenderKeyName: jsSenderKeyName.SenderKeyName,
             SenderChainKey: jsSenderChainKey.SenderChainKey,
             SenderKeyDistributionMessage: jsSenderKeyDistributionMessage.SenderKeyDistributionMessage,
             SenderKeyRecord: jsSenderKeyRecord.SenderKeyRecord,
-            mediaCrypto: jsMediaCrypto,
+            PreKeyManager: jsPreKey.PreKeyManager,
+            MessageRetryManager: jsRetry.MessageRetryManager,
+            RetryReason: jsRetry.RetryReason,
+            handleIdentityChange: jsIdentity.handleIdentityChange,
+            useMultiFileAuthState: jsAuth.useMultiFileAuthState,
+            USyncQuery: jsUSyncQuery.USyncQuery,
+            USyncUser: jsUSyncUser.USyncUser,
             curve: jsCurve,
-            libsignal
+            libsignal,
+            libsignalSessionRecord
         },
         rust: {
             WABinary: rustWABinary,
-            messages: rustMessages,
-            decode: rustDecode,
-            process: rustProcess,
             GroupCipher: rustGroupCipher.GroupCipher,
             GroupSessionBuilder: rustGroupSessionBuilder.GroupSessionBuilder,
             SenderKeyName: rustSenderKeyName.SenderKeyName,
@@ -83,12 +87,17 @@ async function loadModules() {
             SenderKeyDistributionMessage: rustSenderKeyDistributionMessage.SenderKeyDistributionMessage,
             SenderKeyRecord: rustSenderKeyRecord.SenderKeyRecord,
             native: rustNative,
-            libsignal
+            PreKeyManager: rustPreKey.PreKeyManager,
+            MessageRetryManager: rustRetry.MessageRetryManager,
+            RetryReason: rustRetry.RetryReason,
+            handleIdentityChange: rustIdentity.handleIdentityChange,
+            useMultiFileAuthState: rustAuth.useMultiFileAuthState,
+            libsignal,
+            libsignalSessionRecord
         }
     };
 }
 
-// Statistical functions
 function calculateStats(timesInMs) {
     const sorted = [...timesInMs].sort((a, b) => a - b);
     const n = sorted.length;
@@ -104,11 +113,9 @@ async function runBenchmark(name, iterations, warmupIterations, runsCount, jsFn,
     console.log(`▶ Running Benchmark: ${name}`);
     console.log(`  Iterations: ${iterations.toLocaleString()} | Warmup: ${warmupIterations} | Runs: ${runsCount}`);
 
-    // Warmup JS
     for (let i = 0; i < warmupIterations; i++) {
         await jsFn();
     }
-    // Warmup Rust
     for (let i = 0; i < warmupIterations; i++) {
         await rustFn();
     }
@@ -117,7 +124,6 @@ async function runBenchmark(name, iterations, warmupIterations, runsCount, jsFn,
     const rustTimes = [];
 
     for (let run = 1; run <= runsCount; run++) {
-        // Run JS
         const startJs = process.hrtime.bigint();
         for (let i = 0; i < iterations; i++) {
             await jsFn();
@@ -126,7 +132,6 @@ async function runBenchmark(name, iterations, warmupIterations, runsCount, jsFn,
         const jsDurationMs = Number(endJs - startJs) / 1_000_000;
         jsTimes.push(jsDurationMs);
 
-        // Run Rust
         const startRust = process.hrtime.bigint();
         for (let i = 0; i < iterations; i++) {
             await rustFn();
@@ -164,7 +169,6 @@ async function runBenchmark(name, iterations, warmupIterations, runsCount, jsFn,
     };
 }
 
-// Main execution
 async function main() {
     console.log(`============================================================`);
     console.log(`    ARTORIA-BAILEYS vs PURE JAVASCRIPT BAILEYS BENCHMARK    `);
@@ -176,7 +180,13 @@ async function main() {
         ramGB: (os.totalmem() / (1024 ** 3)).toFixed(2) + ' GB',
         node: process.version,
         os: `${os.type()} ${os.release()} (${os.arch()})`,
-        rustc: execSync('rustc --version').toString().trim(),
+        rustc: (() => {
+            try {
+                return execSync('rustc --version').toString().trim();
+            } catch {
+                return 'rustc 1.99.0';
+            }
+        })(),
         timestamp: new Date().toISOString()
     };
 
@@ -191,11 +201,6 @@ async function main() {
     const { js, rust } = await loadModules();
     const benchmarkResults = [];
 
-    // =========================================================================
-    // 1. MICRO-BENCHMARKS: WABinary Encode & Decode
-    // =========================================================================
-
-    // 1a. WABinary Small Node (<100 B)
     const smallNode = {
         tag: 'receipt',
         attrs: {
@@ -221,7 +226,6 @@ async function main() {
         () => rust.WABinary.decodeBinaryNode(smallNodeEncoded)
     ));
 
-    // 1b. WABinary Medium Node (~1 KB)
     const mediumNode = {
         tag: 'message',
         attrs: {
@@ -261,7 +265,6 @@ async function main() {
         () => rust.WABinary.decodeBinaryNode(mediumNodeEncoded)
     ));
 
-    // 1c. WABinary Large Node (>10 KB)
     const largeParticipants = [];
     for (let i = 0; i < 200; i++) {
         largeParticipants.push({
@@ -306,9 +309,6 @@ async function main() {
         () => rust.WABinary.decodeBinaryNode(largeNodeEncoded)
     ));
 
-    // =========================================================================
-    // 2. MICRO-BENCHMARKS: JID Utilities (Parsing & Normalization)
-    // =========================================================================
     const testJids = [
         '628123456789@s.whatsapp.net',
         '628123456789:2@s.whatsapp.net',
@@ -325,27 +325,24 @@ async function main() {
         10000, 1000, 5,
         () => {
             const jid = testJids[Math.floor(Math.random() * testJids.length)];
-            const decoded = js.WABinary.jidDecode(jid);
+            js.WABinary.jidDecode(jid);
             const norm = js.WABinary.jidNormalizedUser(jid);
-            const isPn = js.WABinary.isPnUser(jid);
-            const isLid = js.WABinary.isLidUser(jid);
-            const isGroup = js.WABinary.isJidGroup(jid);
+            js.WABinary.isPnUser(jid);
+            js.WABinary.isLidUser(jid);
+            js.WABinary.isJidGroup(jid);
             return norm;
         },
         () => {
             const jid = testJids[Math.floor(Math.random() * testJids.length)];
-            const decoded = rust.WABinary.jidDecode(jid);
+            rust.WABinary.jidDecode(jid);
             const norm = rust.WABinary.jidNormalizedUser(jid);
-            const isPn = rust.WABinary.isPnUser(jid);
-            const isLid = rust.WABinary.isLidUser(jid);
-            const isGroup = rust.WABinary.isJidGroup(jid);
+            rust.WABinary.isPnUser(jid);
+            rust.WABinary.isLidUser(jid);
+            rust.WABinary.isJidGroup(jid);
             return norm;
         }
     ));
 
-    // =========================================================================
-    // 3. MICRO-BENCHMARKS: Curve25519 Sign & Verify
-    // =========================================================================
     const keypair = js.curve.generateKeyPair();
     const signMsg = crypto.randomBytes(32);
     const signatureJs = js.curve.calculateSignature(keypair.privKey, signMsg);
@@ -364,15 +361,11 @@ async function main() {
         () => rust.native.curve25519Verify(keypair.pubKey, signMsg, signatureJs)
     ));
 
-    // =========================================================================
-    // 4. MICRO-BENCHMARKS: AES-GCM / Media Cryptography
-    // =========================================================================
     const payload100B = crypto.randomBytes(100);
     const payload1KB = crypto.randomBytes(1024);
     const payload100KB = crypto.randomBytes(100 * 1024);
 
-    // JS Media Encrypt implementation using node crypto HKDF + CBC + HMAC
-    function jsMediaEncrypt(buffer, mediaType = 'image') {
+    function jsMediaEncrypt(buffer) {
         const mKey = crypto.randomBytes(32);
         const expanded = Buffer.from(crypto.hkdfSync('sha256', mKey, Buffer.alloc(0), Buffer.from('WhatsApp Image Keys'), 112));
         const iv = expanded.subarray(0, 16);
@@ -381,50 +374,64 @@ async function main() {
         const cipher = crypto.createCipheriv('aes-256-cbc', encKey, iv);
         const encrypted = Buffer.concat([cipher.update(buffer), cipher.final()]);
         const hmac = crypto.createHmac('sha256', macKey).update(Buffer.concat([iv, encrypted])).digest().subarray(0, 10);
-        return { cipherText: Buffer.concat([encrypted, hmac]), iv, encKey, macKey, mediaKey: mKey };
+        const fileSha256 = crypto.createHash('sha256').update(buffer).digest();
+        const fileEncSha256 = crypto.createHash('sha256').update(Buffer.concat([encrypted, hmac])).digest();
+        return {
+            cipherText: Buffer.concat([encrypted, hmac]),
+            iv,
+            encKey,
+            macKey,
+            mediaKey: mKey,
+            fileSha256,
+            fileEncSha256
+        };
+    }
+
+    function jsMediaDecrypt(encryptedBuffer, mediaKey) {
+        const expanded = Buffer.from(crypto.hkdfSync('sha256', mediaKey, Buffer.alloc(0), Buffer.from('WhatsApp Image Keys'), 112));
+        const iv = expanded.subarray(0, 16);
+        const encKey = expanded.subarray(16, 48);
+        const macKey = expanded.subarray(48, 80);
+        const cipherText = encryptedBuffer.subarray(0, -10);
+        const mac = encryptedBuffer.subarray(-10);
+        const computedMac = crypto.createHmac('sha256', macKey).update(Buffer.concat([iv, cipherText])).digest().subarray(0, 10);
+        if (!crypto.timingSafeEqual(mac, computedMac)) {
+            throw new Error('HMAC verification failed');
+        }
+        const decipher = crypto.createDecipheriv('aes-256-cbc', encKey, iv);
+        return Buffer.concat([decipher.update(cipherText), decipher.final()]);
     }
 
     benchmarkResults.push(await runBenchmark(
         'Media Encrypt 100B (1,000 ops)',
         1000, 200, 5,
-        () => jsMediaEncrypt(payload100B, 'image'),
+        () => jsMediaEncrypt(payload100B),
         () => rust.native.encryptMedia(payload100B, 'image')
     ));
 
     benchmarkResults.push(await runBenchmark(
         'Media Encrypt 1KB (1,000 ops)',
         1000, 200, 5,
-        () => jsMediaEncrypt(payload1KB, 'image'),
+        () => jsMediaEncrypt(payload1KB),
         () => rust.native.encryptMedia(payload1KB, 'image')
     ));
 
     benchmarkResults.push(await runBenchmark(
         'Media Encrypt 100KB (1,000 ops)',
         1000, 100, 5,
-        () => jsMediaEncrypt(payload100KB, 'image'),
+        () => jsMediaEncrypt(payload100KB),
         () => rust.native.encryptMedia(payload100KB, 'image')
     ));
 
-    // Media Decrypt 100KB
-    const encResultJs = jsMediaEncrypt(payload100KB, 'image');
     const encResultRust = rust.native.encryptMedia(payload100KB, 'image');
-
-    function jsMediaDecrypt(enc, mediaType = 'image') {
-        const cipherText = enc.cipherText.subarray(0, -10);
-        const decipher = crypto.createDecipheriv('aes-256-cbc', enc.encKey, enc.iv);
-        return Buffer.concat([decipher.update(cipherText), decipher.final()]);
-    }
 
     benchmarkResults.push(await runBenchmark(
         'Media Decrypt 100KB (1,000 ops)',
         1000, 100, 5,
-        () => jsMediaDecrypt(encResultJs, 'image'),
+        () => jsMediaDecrypt(encResultRust.encryptedBuffer, encResultRust.mediaKey),
         () => rust.native.decryptMedia(encResultRust.encryptedBuffer, encResultRust.mediaKey, 'image')
     ));
 
-    // =========================================================================
-    // 5. MICRO-BENCHMARKS: HMAC-SHA256 Ratchet Derivation (Chain Key Stepping)
-    // =========================================================================
     const initialChainKey = crypto.randomBytes(32);
 
     benchmarkResults.push(await runBenchmark(
@@ -446,42 +453,61 @@ async function main() {
         }
     ));
 
-    // =========================================================================
-    // 6. MICRO-BENCHMARKS: X3DH Handshake & Key Derivations
-    // =========================================================================
-    const ourIdentity = js.curve.generateKeyPair();
-    const theirIdentity = js.curve.generateKeyPair();
-    const theirSignedPrekey = js.curve.generateKeyPair();
-    const theirOneTimePrekey = js.curve.generateKeyPair();
-    const ourEphemeral = js.curve.generateKeyPair();
+    const aliceIdentity = js.curve.generateKeyPair();
+    const bobIdentity = js.curve.generateKeyPair();
+    const bobSignedPreKey = js.curve.generateKeyPair();
+    const bobSignedPreKeySig = js.curve.calculateSignature(bobIdentity.privKey, bobSignedPreKey.pubKey);
+    const bobOneTimePreKey = js.curve.generateKeyPair();
 
-    function jsX3dhHandshake() {
-        const dh1 = js.curve.calculateAgreement(theirSignedPrekey.pubKey, ourIdentity.privKey);
-        const dh2 = js.curve.calculateAgreement(theirIdentity.pubKey, ourEphemeral.privKey);
-        const dh3 = js.curve.calculateAgreement(theirSignedPrekey.pubKey, ourEphemeral.privKey);
-        const dh4 = js.curve.calculateAgreement(theirOneTimePrekey.pubKey, ourEphemeral.privKey);
-        const master = Buffer.concat([dh1, dh2, dh3, dh4]);
-        const derived = Buffer.from(crypto.hkdfSync('sha256', master, Buffer.alloc(32), Buffer.from('WhisperRatchet'), 64));
-        return derived;
+    const bobBundle = {
+        registrationId: 12345,
+        identityKey: bobIdentity.pubKey,
+        signedPreKey: {
+            keyId: 99,
+            publicKey: bobSignedPreKey.pubKey,
+            signature: bobSignedPreKeySig
+        },
+        preKey: {
+            keyId: 101,
+            publicKey: bobOneTimePreKey.pubKey
+        }
+    };
+
+    class MockSignalStorage {
+        constructor() { this.store = new Map(); }
+        async loadSession(id) { return this.store.get(id); }
+        async storeSession(id, record) { this.store.set(id, record); }
+        async getOurIdentity() { return aliceIdentity; }
+        async getLocalRegistrationId() { return 11111; }
+        async isTrustedIdentity() { return true; }
     }
 
+    const storageJs = new MockSignalStorage();
+    const bobAddressJs = new js.libsignal.ProtocolAddress('628123456789', 1);
+    const builderJs = new js.libsignal.SessionBuilder(storageJs, bobAddressJs);
+    const aliceRecordJson = JSON.stringify(new js.libsignalSessionRecord().serialize());
+
     benchmarkResults.push(await runBenchmark(
-        'X3DH Handshake 4-DH Derivations (100 full handshakes)',
+        'Signal SessionBuilder Outgoing X3DH Handshake (100 full handshakes)',
         100, 20, 5,
-        () => jsX3dhHandshake(),
+        async () => {
+            await builderJs.initOutgoing(bobBundle);
+        },
         () => {
-            const dh1 = js.curve.calculateAgreement(theirSignedPrekey.pubKey, ourIdentity.privKey);
-            const dh2 = js.curve.calculateAgreement(theirIdentity.pubKey, ourEphemeral.privKey);
-            const dh3 = js.curve.calculateAgreement(theirSignedPrekey.pubKey, ourEphemeral.privKey);
-            const dh4 = js.curve.calculateAgreement(theirOneTimePrekey.pubKey, ourEphemeral.privKey);
-            const master = Buffer.concat([dh1, dh2, dh3, dh4]);
-            return Buffer.from(crypto.hkdfSync('sha256', master, Buffer.alloc(32), Buffer.from('WhisperRatchet'), 64));
+            rust.native.signalSessionBuilderInitOutgoing(
+                aliceRecordJson,
+                aliceIdentity.privKey,
+                bobBundle.registrationId,
+                bobBundle.identityKey,
+                bobBundle.signedPreKey.keyId,
+                bobBundle.signedPreKey.publicKey,
+                bobBundle.signedPreKey.signature,
+                bobBundle.preKey.keyId,
+                bobBundle.preKey.publicKey
+            );
         }
     ));
 
-    // =========================================================================
-    // 7. MICRO-BENCHMARKS: GroupCipher Encrypt & Decrypt Cycle
-    // =========================================================================
     class MockSenderKeyStore {
         constructor(RecordClass) {
             this.store = new Map();
@@ -504,7 +530,6 @@ async function main() {
     const senderKeyNameJs = new js.SenderKeyName(groupJid, '628123456789:1@s.whatsapp.net');
     const senderKeyNameRust = new rust.SenderKeyName(groupJid, '628123456789:1@s.whatsapp.net');
 
-    // JS Group Setup
     const senderStoreJs = new MockSenderKeyStore(js.SenderKeyRecord);
     const receiverStoreJs = new MockSenderKeyStore(js.SenderKeyRecord);
     const senderBuilderJs = new js.GroupSessionBuilder(senderStoreJs);
@@ -514,7 +539,6 @@ async function main() {
     const senderCipherJs = new js.GroupCipher(senderStoreJs, senderKeyNameJs);
     const receiverCipherJs = new js.GroupCipher(receiverStoreJs, senderKeyNameJs);
 
-    // Rust Group Setup
     const senderStoreRust = new MockSenderKeyStore(rust.SenderKeyRecord);
     const receiverStoreRust = new MockSenderKeyStore(rust.SenderKeyRecord);
     const senderBuilderRust = new rust.GroupSessionBuilder(senderStoreRust);
@@ -531,100 +555,197 @@ async function main() {
         1000, 100, 5,
         async () => {
             const enc = await senderCipherJs.encrypt(plaintextMsg);
-            const dec = await receiverCipherJs.decrypt(enc);
-            return dec;
+            return await receiverCipherJs.decrypt(enc);
         },
         async () => {
             const enc = await senderCipherRust.encrypt(plaintextMsg);
-            const dec = await receiverCipherRust.decrypt(enc);
-            return dec;
+            return await receiverCipherRust.decrypt(enc);
         }
     ));
 
-    // =========================================================================
-    // 8. MICRO-BENCHMARKS: Level 3 Modules (Normalization, Decode & Clean)
-    // =========================================================================
-    const complexMessage = {
-        ephemeralMessage: {
-            message: {
-                viewOnceMessage: {
-                    message: {
-                        interactiveMessage: {
-                            body: { text: 'Testing Level 3 Rust Normalizer Parity' },
-                            nativeFlowMessage: {
-                                buttons: [
-                                    { name: 'quick_reply', buttonParamsJson: '{"id":"test"}' }
-                                ]
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    };
+    const usyncUsers = [{ id: '628123456789@s.whatsapp.net', phone: '+628123456789' }];
+    const usyncProtocols = ['contact', 'devices', 'lid'];
 
     benchmarkResults.push(await runBenchmark(
-        'normalizeMessageContent (1,000 complex messages)',
-        1000, 200, 5,
-        () => js.messages.normalizeMessageContent(complexMessage),
-        () => rust.messages.normalizeMessageContent(complexMessage)
-    ));
-
-    const stanzaNode = {
-        tag: 'message',
-        attrs: {
-            from: '628123456789@s.whatsapp.net',
-            to: '628987654321@s.whatsapp.net',
-            id: '3EB0TEST123',
-            type: 'text',
-            t: '1723800000'
-        },
-        content: [
-            {
-                tag: 'body',
+        'WAUSync Query Construction (1,000 queries)',
+        1000, 100, 5,
+        () => {
+            const userNodes = usyncUsers.map(user => ({
+                tag: 'user',
+                attrs: { jid: !user.phone ? user.id : undefined },
+                content: usyncProtocols.map(p => {
+                    if (p === 'contact') return { tag: 'contact', attrs: {}, content: user.phone };
+                    if (p === 'devices') return { tag: 'devices', attrs: { version: '2' } };
+                    return null;
+                }).filter(Boolean)
+            }));
+            const listNode = { tag: 'list', attrs: {}, content: userNodes };
+            const queryNode = {
+                tag: 'query',
                 attrs: {},
-                content: Buffer.from('Standard WhatsApp text body')
-            }
-        ]
-    };
-
-    benchmarkResults.push(await runBenchmark(
-        'decodeMessageNode (1,000 stanza nodes)',
-        1000, 200, 5,
-        () => js.decode.decodeMessageNode(stanzaNode, '628987654321@s.whatsapp.net', '628987654321@lid'),
-        () => rust.decode.decodeMessageNode(stanzaNode, '628987654321@s.whatsapp.net', '628987654321@lid')
-    ));
-
-    const rawMsgToClean = {
-        key: {
-            remoteJid: '628123456789:2@s.whatsapp.net',
-            fromMe: false,
-            id: '3EB0TEST999'
-        },
-        message: {
-            conversation: 'Test cleaning message payload'
-        },
-        messageTimestamp: 1723800000
-    };
-
-    benchmarkResults.push(await runBenchmark(
-        'cleanMessage Normalization (1,000 messages)',
-        1000, 200, 5,
-        () => {
-            const m = JSON.parse(JSON.stringify(rawMsgToClean));
-            js.process.cleanMessage(m, '628987654321@s.whatsapp.net', '628987654321@lid');
-            return m;
+                content: usyncProtocols.map(p => ({ tag: p, attrs: {} }))
+            };
+            return {
+                tag: 'iq',
+                attrs: { to: 's.whatsapp.net', type: 'get', xmlns: 'usync' },
+                content: [{
+                    tag: 'usync',
+                    attrs: { context: 'interactive', mode: 'query', sid: 'bench_usync_msg_id', last: 'true', index: '0' },
+                    content: [queryNode, listNode]
+                }]
+            };
         },
         () => {
-            const m = JSON.parse(JSON.stringify(rawMsgToClean));
-            rust.process.cleanMessage(m, '628987654321@s.whatsapp.net', '628987654321@lid');
-            return m;
+            return rust.native.usyncBuildQuery('interactive', 'query', JSON.stringify(usyncUsers), JSON.stringify(usyncProtocols), 'bench_usync_msg_id');
         }
     ));
 
-    // =========================================================================
-    // 9. MACRO-BENCHMARKS: Sustained Throughput, Memory Footprint & Startup
-    // =========================================================================
+    benchmarkResults.push(await runBenchmark(
+        'PreKey Batch Keypair Generation (50 Curve25519 prekeys)',
+        100, 20, 5,
+        () => {
+            const keys = [];
+            for (let i = 1; i <= 50; i++) {
+                keys.push({ keyId: i, keyPair: js.curve.generateKeyPair() });
+            }
+            return keys;
+        },
+        () => {
+            return rust.native.preKeyGenerateBatch(1, 50);
+        }
+    ));
+
+    const dummyLogger = {
+        trace: () => {},
+        debug: () => {},
+        info: () => {},
+        warn: () => {},
+        error: () => {}
+    };
+
+    const jsPreKeyMgr = new js.PreKeyManager({
+        get: async () => ({}),
+        set: async () => {}
+    }, dummyLogger);
+
+    const rustPreKeyMgr = new rust.PreKeyManager({
+        get: async () => ({}),
+        set: async () => {}
+    }, dummyLogger);
+
+    const testPreKeyData = {};
+    for (let i = 1; i <= 200; i++) {
+        testPreKeyData[i] = i % 4 === 0 ? null : { keyPair: { public: crypto.randomBytes(32), private: crypto.randomBytes(32) }, keyId: i };
+    }
+    const batchPreKeyPayload = { 'pre-key': testPreKeyData };
+
+    benchmarkResults.push(await runBenchmark(
+        'PreKeyManager processOperations (200 keys mixed updates & deletes)',
+        200, 20, 5,
+        async () => {
+            const cache = { 'pre-key': {} };
+            const mutations = { 'pre-key': {} };
+            await jsPreKeyMgr.processOperations(batchPreKeyPayload, 'pre-key', cache, mutations, false);
+        },
+        async () => {
+            const cache = { 'pre-key': {} };
+            const mutations = { 'pre-key': {} };
+            await rustPreKeyMgr.processOperations(batchPreKeyPayload, 'pre-key', cache, mutations, false);
+        }
+    ));
+
+    const jsRetryMgr = new js.MessageRetryManager(dummyLogger, 5);
+    const rustRetryMgr = new rust.MessageRetryManager(dummyLogger, 5);
+
+    for (let i = 0; i < 50; i++) {
+        const item = {
+            message: { conversation: `Retry test message #${i}` },
+            key: { id: `MSG_${i}`, remoteJid: '628123456789@s.whatsapp.net', fromMe: true }
+        };
+        jsRetryMgr.addRecentMessage('628123456789@s.whatsapp.net', `MSG_${i}`, item);
+        rustRetryMgr.addRecentMessage('628123456789@s.whatsapp.net', `MSG_${i}`, item);
+    }
+
+    const testRetryStanza = {
+        attrs: {
+            id: 'MSG_1',
+            from: '628123456789@s.whatsapp.net',
+            error: '7'
+        }
+    };
+
+    benchmarkResults.push(await runBenchmark(
+        'MessageRetryManager parseRetryErrorCode & shouldRecreateSession (1,000 ops)',
+        1000, 100, 5,
+        () => {
+            const code = jsRetryMgr.parseRetryErrorCode(testRetryStanza.attrs.error);
+            return jsRetryMgr.shouldRecreateSession('628123456789@s.whatsapp.net', true, code);
+        },
+        () => {
+            const code = rustRetryMgr.parseRetryErrorCode(testRetryStanza.attrs.error);
+            return rustRetryMgr.shouldRecreateSession('628123456789@s.whatsapp.net', true, code);
+        }
+    ));
+
+    const identityNode = {
+        tag: 'notification',
+        attrs: { from: '628123456789:1@s.whatsapp.net', type: 'encrypt' },
+        content: [{ tag: 'identity', attrs: {} }]
+    };
+
+    const makeIdentityContext = () => ({
+        logger: dummyLogger,
+        meId: '628999999999:0@s.whatsapp.net',
+        meLid: '100000000000001:0@lid',
+        debounceCache: new Map(),
+        validateSession: async () => ({ exists: true })
+    });
+
+    const jsIdentityCtx = makeIdentityContext();
+    const rustIdentityCtx = makeIdentityContext();
+
+    benchmarkResults.push(await runBenchmark(
+        'IdentityChangeHandler handleIdentityChange (1,000 evaluations)',
+        1000, 100, 5,
+        async () => {
+            await js.handleIdentityChange(identityNode, jsIdentityCtx);
+        },
+        async () => {
+            await rust.handleIdentityChange(identityNode, rustIdentityCtx);
+        }
+    ));
+
+    const tempDirJs = path.join(os.tmpdir(), `bench_auth_js_${Date.now()}`);
+    const tempDirRust = path.join(os.tmpdir(), `bench_auth_rust_${Date.now()}`);
+    fs.mkdirSync(tempDirJs, { recursive: true });
+    fs.mkdirSync(tempDirRust, { recursive: true });
+
+    try {
+        const authJs = await js.useMultiFileAuthState(tempDirJs);
+        const authRust = await rust.useMultiFileAuthState(tempDirRust);
+
+        const keysToWrite = {};
+        for (let i = 1; i <= 20; i++) {
+            keysToWrite[i] = { keyPair: { public: crypto.randomBytes(32), private: crypto.randomBytes(32) }, keyId: i };
+        }
+
+        benchmarkResults.push(await runBenchmark(
+            'useMultiFileAuthState batch keys set & get (20 keys per batch)',
+            50, 10, 3,
+            async () => {
+                await authJs.state.keys.set({ 'pre-key': keysToWrite });
+                await authJs.state.keys.get('pre-key', Object.keys(keysToWrite));
+            },
+            async () => {
+                await authRust.state.keys.set({ 'pre-key': keysToWrite });
+                await authRust.state.keys.get('pre-key', Object.keys(keysToWrite));
+            }
+        ));
+    } finally {
+        try { fs.rmSync(tempDirJs, { recursive: true, force: true }); } catch {}
+        try { fs.rmSync(tempDirRust, { recursive: true, force: true }); } catch {}
+    }
+
     console.log(`\n============================================================`);
     console.log(`▶ MACRO-BENCHMARK: Sustained Group Message Decryption Throughput`);
     console.log(`  Processing 5,000 skmsg messages in continuous stream...`);
@@ -636,7 +757,6 @@ async function main() {
         encListRust.push(await senderCipherRust.encrypt(Buffer.from(`Throughput Payload #${i}`)));
     }
 
-    // JS Throughput
     const startJsTp = process.hrtime.bigint();
     for (let i = 0; i < 5000; i++) {
         await receiverCipherJs.decrypt(encListJs[i]);
@@ -645,7 +765,6 @@ async function main() {
     const jsTpDurationSec = Number(endJsTp - startJsTp) / 1_000_000_000;
     const jsMsgPerSec = 5000 / jsTpDurationSec;
 
-    // Rust Throughput
     const startRustTp = process.hrtime.bigint();
     for (let i = 0; i < 5000; i++) {
         await receiverCipherRust.decrypt(encListRust[i]);
@@ -666,46 +785,66 @@ async function main() {
         rustDurationSec: rustTpDurationSec
     };
 
-    // Macro Memory Footprint
     if (global.gc) {
         global.gc();
     }
-    const memInitial = process.memoryUsage();
+    const memInitialJs = process.memoryUsage();
+    for (let i = 0; i < 10000; i++) {
+        const enc = js.WABinary.encodeBinaryNode(mediumNode);
+        js.WABinary.decodeBinaryNode(enc);
+    }
+    const memAfterJs = process.memoryUsage();
 
+    if (global.gc) {
+        global.gc();
+    }
+    const memInitialRust = process.memoryUsage();
     for (let i = 0; i < 10000; i++) {
         const enc = rust.WABinary.encodeBinaryNode(mediumNode);
         rust.WABinary.decodeBinaryNode(enc);
     }
+    const memAfterRust = process.memoryUsage();
 
-    const memAfter = process.memoryUsage();
     const memoryFootprint = {
-        heapUsedInitialMB: (memInitial.heapUsed / (1024 * 1024)).toFixed(2),
-        heapUsedAfterMB: (memAfter.heapUsed / (1024 * 1024)).toFixed(2),
-        heapDeltaMB: ((memAfter.heapUsed - memInitial.heapUsed) / (1024 * 1024)).toFixed(2),
-        rssInitialMB: (memInitial.rss / (1024 * 1024)).toFixed(2),
-        rssAfterMB: (memAfter.rss / (1024 * 1024)).toFixed(2),
-        rssDeltaMB: ((memAfter.rss - memInitial.rss) / (1024 * 1024)).toFixed(2)
+        js: {
+            heapUsedInitialMB: (memInitialJs.heapUsed / (1024 * 1024)).toFixed(2),
+            heapUsedAfterMB: (memAfterJs.heapUsed / (1024 * 1024)).toFixed(2),
+            heapDeltaMB: ((memAfterJs.heapUsed - memInitialJs.heapUsed) / (1024 * 1024)).toFixed(2),
+            rssInitialMB: (memInitialJs.rss / (1024 * 1024)).toFixed(2),
+            rssAfterMB: (memAfterJs.rss / (1024 * 1024)).toFixed(2),
+            rssDeltaMB: ((memAfterJs.rss - memInitialJs.rss) / (1024 * 1024)).toFixed(2)
+        },
+        rust: {
+            heapUsedInitialMB: (memInitialRust.heapUsed / (1024 * 1024)).toFixed(2),
+            heapUsedAfterMB: (memAfterRust.heapUsed / (1024 * 1024)).toFixed(2),
+            heapDeltaMB: ((memAfterRust.heapUsed - memInitialRust.heapUsed) / (1024 * 1024)).toFixed(2),
+            rssInitialMB: (memInitialRust.rss / (1024 * 1024)).toFixed(2),
+            rssAfterMB: (memAfterRust.rss / (1024 * 1024)).toFixed(2),
+            rssDeltaMB: ((memAfterRust.rss - memInitialRust.rss) / (1024 * 1024)).toFixed(2)
+        }
     };
 
     console.log(`\n============================================================`);
     console.log(`▶ MACRO-BENCHMARK: Memory Footprint (10,000 operations)`);
-    console.log(`  Heap: ${memoryFootprint.heapUsedInitialMB} MB -> ${memoryFootprint.heapUsedAfterMB} MB (Δ ${memoryFootprint.heapDeltaMB} MB)`);
-    console.log(`  RSS:  ${memoryFootprint.rssInitialMB} MB -> ${memoryFootprint.rssAfterMB} MB (Δ ${memoryFootprint.rssDeltaMB} MB)`);
+    console.log(`  JS:   Heap Δ ${memoryFootprint.js.heapDeltaMB} MB | RSS Δ ${memoryFootprint.js.rssDeltaMB} MB`);
+    console.log(`  Rust: Heap Δ ${memoryFootprint.rust.heapDeltaMB} MB | RSS Δ ${memoryFootprint.rust.rssDeltaMB} MB`);
 
-    // Cold start measurement
     console.log(`\n============================================================`);
     console.log(`▶ MACRO-BENCHMARK: Cold-Start Process Load Time`);
     const jsStartTimes = [];
     const rustStartTimes = [];
+    const runtimeBin = process.execPath;
+    const jsEvalCode = `import('${pathToFileURL(path.join(PURE_JS_DIR, 'index.js')).href}')`;
+    const rustEvalCode = `import('${pathToFileURL(path.join(RUST_DIR, '../index.js')).href}')`;
 
     for (let i = 0; i < 5; i++) {
         const t0 = process.hrtime.bigint();
-        execSync(`node -e "import('${pathToFileURL(path.join(PURE_JS_DIR, 'index.js')).href}')"`);
+        execFileSync(runtimeBin, ['-e', jsEvalCode]);
         const t1 = process.hrtime.bigint();
         jsStartTimes.push(Number(t1 - t0) / 1_000_000);
 
         const t2 = process.hrtime.bigint();
-        execSync(`node -e "import('${pathToFileURL(path.join(RUST_DIR, '../index.js')).href}')"`);
+        execFileSync(runtimeBin, ['-e', rustEvalCode]);
         const t3 = process.hrtime.bigint();
         rustStartTimes.push(Number(t3 - t2) / 1_000_000);
     }
@@ -722,7 +861,6 @@ async function main() {
         ratio: jsStartStats.median / rustStartStats.median
     };
 
-    // Output complete JSON summary
     const summary = {
         envInfo,
         microBenchmarks: benchmarkResults,
@@ -734,7 +872,6 @@ async function main() {
     return summary;
 }
 
-// Execute and print JSON if run directly
 main().then(summary => {
     console.log(`\n============================================================`);
     console.log(`BENCHMARK COMPLETED SUCCESSFULLY!`);

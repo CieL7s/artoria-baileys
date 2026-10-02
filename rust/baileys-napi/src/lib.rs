@@ -1537,4 +1537,134 @@ pub fn version() -> String {
     format!("auriel-baileys-core v{}", baileys_core::version())
 }
 
+#[napi]
+pub fn pre_key_generate_batch(start_id: u32, count: u32) -> Result<String> {
+    let keys = baileys_core::auth::PreKeyManagerCore::generate_pre_keys(start_id, count)
+        .map_err(|e| napi::Error::from_reason(e.to_string()))?;
+    serde_json::to_string(&keys)
+        .map_err(|e| napi::Error::from_reason(format!("Failed to serialize prekeys: {}", e)))
+}
+
+#[napi]
+pub fn pre_key_process_operations(
+    operations_json: String,
+    known_keys_json: String,
+) -> Result<String> {
+    let key_data: std::collections::HashMap<String, serde_json::Value> = serde_json::from_str(&operations_json)
+        .map_err(|e| napi::Error::from_reason(format!("Invalid operations JSON: {}", e)))?;
+    let known_keys: std::collections::HashSet<String> = serde_json::from_str(&known_keys_json)
+        .map_err(|e| napi::Error::from_reason(format!("Invalid known keys JSON: {}", e)))?;
+
+    let res = baileys_core::auth::PreKeyManagerCore::process_operations(key_data, &known_keys);
+
+    serde_json::to_string(&res)
+        .map_err(|e| napi::Error::from_reason(format!("Failed to serialize OperationsResult: {}", e)))
+}
+
+#[napi]
+pub fn pre_key_filter_invalid_deletions(
+    deletion_ids_json: String,
+    existing_keys_json: String,
+) -> Result<String> {
+    let deletion_ids: Vec<String> = serde_json::from_str(&deletion_ids_json)
+        .map_err(|e| napi::Error::from_reason(format!("Invalid deletion IDs JSON: {}", e)))?;
+    let existing_keys: std::collections::HashSet<String> = serde_json::from_str(&existing_keys_json)
+        .map_err(|e| napi::Error::from_reason(format!("Invalid existing keys JSON: {}", e)))?;
+
+    let res = baileys_core::auth::PreKeyManagerCore::filter_invalid_deletions(deletion_ids, &existing_keys);
+    serde_json::to_string(&res)
+        .map_err(|e| napi::Error::from_reason(format!("Failed to serialize filter result: {}", e)))
+}
+
+#[napi]
+pub fn retry_manager_is_mac_error(error_code: Option<u32>) -> bool {
+    baileys_core::connection::RetryManagerCore::is_mac_error(error_code)
+}
+
+#[napi]
+pub fn retry_manager_parse_error_code(error_attr: Option<String>) -> Option<u32> {
+    baileys_core::connection::RetryManagerCore::parse_retry_error_code(error_attr.as_deref())
+}
+
+#[napi]
+pub fn retry_manager_should_recreate_session(
+    jid: String,
+    has_session: bool,
+    error_code: Option<u32>,
+    last_recreate_time: Option<f64>,
+    now: Option<f64>,
+) -> Result<String> {
+    let decision = baileys_core::connection::RetryManagerCore::should_recreate_session(
+        &jid,
+        has_session,
+        error_code,
+        last_recreate_time.map(|t| t as u64),
+        now.map(|t| t as u64).unwrap_or(0),
+    );
+    serde_json::to_string(&decision)
+        .map_err(|e| napi::Error::from_reason(format!("Failed to serialize RecreateDecision: {}", e)))
+}
+
+#[napi]
+pub fn retry_manager_has_same_base_key(stored: Option<Buffer>, current: Buffer) -> bool {
+    match stored {
+        Some(s) => s.as_ref() == current.as_ref(),
+        None => false,
+    }
+}
+
+#[napi]
+pub fn identity_handler_evaluate(
+    from: Option<String>,
+    has_identity_node: bool,
+    me_id: Option<String>,
+    me_lid: Option<String>,
+    is_debounced: bool,
+    is_offline: bool,
+    has_existing_session: bool,
+) -> Result<String> {
+    let eval = baileys_core::auth::IdentityHandlerCore::evaluate(
+        from.as_deref(),
+        has_identity_node,
+        me_id.as_deref(),
+        me_lid.as_deref(),
+        is_debounced,
+        is_offline,
+        has_existing_session,
+    );
+    serde_json::to_string(&eval)
+        .map_err(|e| napi::Error::from_reason(format!("Failed to serialize IdentityEvaluation: {}", e)))
+}
+
+#[napi]
+pub fn auth_fix_file_name(file: String) -> String {
+    baileys_core::auth::FileAuthStateCore::fix_file_name(&file)
+}
+
+#[napi]
+pub fn auth_read_keys_batch(folder: String, key_type: String, ids: Vec<String>) -> Result<String> {
+    let map = baileys_core::auth::FileAuthStateCore::read_keys_batch(
+        std::path::Path::new(&folder),
+        &key_type,
+        &ids,
+    );
+    serde_json::to_string(&map)
+        .map_err(|e| napi::Error::from_reason(format!("Failed to serialize read keys batch: {}", e)))
+}
+
+#[napi]
+pub fn auth_write_keys_batch(folder: String, operations_json: String) -> Result<()> {
+    let ops: std::collections::HashMap<String, std::collections::HashMap<String, Option<String>>> =
+        serde_json::from_str(&operations_json)
+            .map_err(|e| napi::Error::from_reason(format!("Invalid write keys JSON: {}", e)))?;
+    baileys_core::auth::FileAuthStateCore::write_keys_batch(std::path::Path::new(&folder), &ops)
+        .map_err(|e| napi::Error::from_reason(format!("Failed to write keys batch: {}", e)))
+}
+
+#[napi]
+pub fn auth_normalize_creds(creds_json: String) -> Result<String> {
+    baileys_core::auth::FileAuthStateCore::normalize_creds_json(&creds_json)
+        .map_err(|e| napi::Error::from_reason(format!("Failed to normalize creds: {}", e)))
+}
+
 

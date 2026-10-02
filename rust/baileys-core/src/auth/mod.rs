@@ -1,3 +1,11 @@
+pub mod file_auth_state;
+pub mod identity_handler;
+pub mod pre_key_manager;
+
+pub use file_auth_state::FileAuthStateCore;
+pub use identity_handler::{IdentityEvaluation, IdentityHandlerCore};
+pub use pre_key_manager::{OperationsResult, PreKeyManagerCore, PreKeyRecord};
+
 use rand::{thread_rng, Rng, RngCore};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -84,7 +92,6 @@ impl AuthenticationCreds {
         let mut ident_priv_32 = [0u8; 32];
         ident_priv_32.copy_from_slice(&signed_identity_key.private[..32]);
 
-        // Generate signal pubKey with 0x05 prefix
         let mut pub_key_with_prefix = vec![0x05u8];
         pub_key_with_prefix.extend_from_slice(&pre_key.public);
 
